@@ -15,7 +15,7 @@ import (
 var (
 	user32                = windows.NewLazySystemDLL("user32.dll")
 	procSetWindowsHookEx  = user32.NewProc("SetWindowsHookExW")
-	procCallNextHookEx    = user32.NewProc("CallNextHookEx")     // ← use this if defined
+	procCallNextHookEx    = user32.NewProc("CallNextHookEx") // ← use this if defined
 	procUnhookWindowsHook = user32.NewProc("UnhookWindowsHookEx")
 	procGetMessage        = user32.NewProc("GetMessageW")
 	procTranslateMessage  = user32.NewProc("TranslateMessage")
@@ -25,6 +25,11 @@ var (
 	procGetWindowThread   = user32.NewProc("GetWindowThreadProcessId")
 
 	hook windows.Handle
+)
+
+const (
+	WH_GETMESSAGE  = 3
+	WH_CALLWNDPROC = 4
 )
 
 // Manual POINT definition (since package export is unreliable in your version)
@@ -38,7 +43,7 @@ type MSG struct {
 	WParam  uintptr
 	LParam  uintptr
 	Time    uint32
-	Pt      POINT   // ← your manual type
+	Pt      POINT // ← your manual type
 }
 
 type CWPSTRUCT struct {
@@ -91,12 +96,18 @@ func main() {
 
 	// Get thread ID of target window
 	var tid uint32
-	procGetWindowThread.Call(hwnd, uintptr(unsafe.Pointer(&tid)))
+
+	ret, _, err := procGetWindowThread.Call(hwnd, uintptr(unsafe.Pointer(&tid)))
+	if ret == 0 {
+		fmt.Printf("GetWindowThreadProcessId failed: %v (err=%d)\n", err, syscall.GetLastError())
+		return
+	}
+	fmt.Printf("Target thread ID: %d\n", tid)
 
 	// Install hook on that thread
 	cb := syscall.NewCallback(hookCallback)
 	h, _, err := procSetWindowsHookEx.Call(
-		4, // WH_CALLWNDPROC
+		WH_CALLWNDPROC,
 		cb,
 		0,
 		uintptr(tid),

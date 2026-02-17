@@ -1,0 +1,3 @@
+needs to be done via .dll injection thus need CGO
+grok mistakenly told me it can be done if only targetting specific window.
+that was a lie.
