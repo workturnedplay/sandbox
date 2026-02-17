@@ -15,7 +15,7 @@ import (
 var (
 	user32                = windows.NewLazySystemDLL("user32.dll")
 	procSetWindowsHookEx  = user32.NewProc("SetWindowsHookExW")
-	procCallNextHookEx    = user32.NewProc("CallNextHookEx") // ← use this if defined
+	procCallNextHookEx    = user32.NewProc("CallNextHookEx")
 	procUnhookWindowsHook = user32.NewProc("UnhookWindowsHookEx")
 	procGetMessage        = user32.NewProc("GetMessageW")
 	procTranslateMessage  = user32.NewProc("TranslateMessage")
@@ -23,16 +23,16 @@ var (
 	procEnumWindows       = user32.NewProc("EnumWindows")
 	procGetWindowText     = user32.NewProc("GetWindowTextW")
 	procGetWindowThread   = user32.NewProc("GetWindowThreadProcessId")
+	procGetWindowLongPtr  = user32.NewProc("GetWindowLongPtrW")
+	procSetWindowLongPtr  = user32.NewProc("SetWindowLongPtrW")
+	procCallWindowProc    = user32.NewProc("CallWindowProcW")
 
-	hook windows.Handle
+	hook            windows.Handle
+	originalWndProc uintptr
+	targetHwnd      windows.Handle
 )
 
-const (
-	WH_GETMESSAGE  = 3
-	WH_CALLWNDPROC = 4
-)
-
-// Manual POINT definition (since package export is unreliable in your version)
+// Manual POINT definition (safe and self-contained)
 type POINT struct {
 	X, Y int32
 }
@@ -43,7 +43,7 @@ type MSG struct {
 	WParam  uintptr
 	LParam  uintptr
 	Time    uint32
-	Pt      POINT // ← your manual type
+	Pt      POINT
 }
 
 type CWPSTRUCT struct {
@@ -53,16 +53,73 @@ type CWPSTRUCT struct {
 	Hwnd    windows.Handle
 }
 
-func hookCallback(code int, wParam uintptr, lParam uintptr) uintptr {
-	if code >= 0 {
-		cwp := (*CWPSTRUCT)(unsafe.Pointer(lParam))
-		fmt.Printf("Msg: 0x%X, Hwnd: 0x%X, wParam: 0x%X, lParam: 0x%X\n",
-			cwp.Message, cwp.Hwnd, cwp.WParam, cwp.LParam)
+// const GWL_WNDPROC = -4
+// const GWL_WNDPROC = uintptr(0xFFFFFFFFFFFFFFFC) // -4 as 64-bit two's complement
+// or more clearly:
+const GWL_WNDPROC = ^uintptr(3) // bitwise NOT of 3 = 0x...FFFC = -4 on 64-bit
+
+// Your subclass callback — logs every message that reaches the target's WndProc
+func subclassCallback(hwnd windows.Handle, msg uint32, wParam, lParam uintptr) uintptr {
+	// Log the message (you can filter here if you want less noise)
+	fmt.Printf("Msg: 0x%04X, wParam: 0x%08X, lParam: 0x%016X\n", msg, wParam, lParam)
+
+	// Optional: Force drag by returning HTCAPTION on hit-test
+	// Uncomment the next 3 lines if you want to test forced drag behavior
+	// if msg == 0x0084 { // WM_NCHITTEST
+	//     return 2 // HTCAPTION
+	// }
+
+	// Forward to original window procedure
+	ret, _, _ := procCallWindowProc.Call(
+		originalWndProc,
+		uintptr(hwnd),
+		uintptr(msg),
+		wParam,
+		lParam,
+	)
+	return ret
+}
+
+// Subclass the target window
+func subclassTarget(target windows.Handle) error {
+	cb := syscall.NewCallback(subclassCallback)
+
+	// Get original WndProc
+	orig, _, err := procGetWindowLongPtr.Call(
+		uintptr(target),
+		uintptr(GWL_WNDPROC),
+	)
+	if orig == 0 {
+		return fmt.Errorf("GetWindowLongPtr failed: %v", err)
+	}
+	originalWndProc = orig
+
+	// Replace with our callback
+	_, _, err = procSetWindowLongPtr.Call(
+		uintptr(target),
+		GWL_WNDPROC,
+		cb,
+	)
+	if err != syscall.Errno(0) {
+		return fmt.Errorf("SetWindowLongPtr failed: %v", err)
 	}
 
-	// Use pre-defined procCallNextHookEx (cheaper)
-	r1, _, _ := procCallNextHookEx.Call(0, uintptr(code), wParam, lParam)
-	return r1
+	fmt.Printf("Successfully subclassed HWND 0x%X\n", target)
+	return nil
+}
+
+// Restore original WndProc
+func unsubclassTarget(target windows.Handle) {
+	if originalWndProc == 0 {
+		return
+	}
+	procSetWindowLongPtr.Call(
+		uintptr(target),
+		GWL_WNDPROC,
+		originalWndProc,
+	)
+	fmt.Printf("Restored original WndProc for HWND 0x%X\n", target)
+	originalWndProc = 0
 }
 
 func enumCallback(hwnd uintptr, lParam uintptr) uintptr {
@@ -70,15 +127,15 @@ func enumCallback(hwnd uintptr, lParam uintptr) uintptr {
 	procGetWindowText.Call(hwnd, uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)))
 	title := windows.UTF16ToString(buf[:])
 	if title != "" {
-		fmt.Printf("HWND: 0x%X, Title: %s\n", hwnd, title)
+		fmt.Printf("HWND: 0x%08X  Title: %s\n", hwnd, title)
 	}
-	return 1 // continue
+	return 1 // continue enumeration
 }
 
 func main() {
-	runtime.LockOSThread() // Required for hooks
+	runtime.LockOSThread() // Recommended for message loops / callbacks
 
-	// Show list of windows
+	// Enumerate top-level windows
 	fmt.Println("Enumerating top-level windows...")
 	procEnumWindows.Call(syscall.NewCallback(enumCallback), 0)
 
@@ -92,45 +149,30 @@ func main() {
 		fmt.Printf("Invalid HWND: %v\n", err)
 		return
 	}
-	hwnd := uintptr(hwnd64) // explicit cast to uintptr
+	targetHwnd = windows.Handle(hwnd64)
 
-	// Get thread ID of target window
-	var tid uint32
-
-	ret, _, err := procGetWindowThread.Call(hwnd, uintptr(unsafe.Pointer(&tid)))
-	if ret == 0 {
-		fmt.Printf("GetWindowThreadProcessId failed: %v (err=%d)\n", err, syscall.GetLastError())
+	// Subclass the target
+	if err := subclassTarget(targetHwnd); err != nil {
+		fmt.Printf("Subclassing failed: %v\n", err)
 		return
 	}
-	fmt.Printf("Target thread ID: %d\n", tid)
 
-	// Install hook on that thread
-	cb := syscall.NewCallback(hookCallback)
-	h, _, err := procSetWindowsHookEx.Call(
-		WH_CALLWNDPROC,
-		cb,
-		0,
-		uintptr(tid),
-	)
-	if h == 0 {
-		fmt.Printf("SetWindowsHookEx failed: %v\n", err)
-		return
-	}
-	hook = windows.Handle(h)
-	defer procUnhookWindowsHook.Call(uintptr(hook))
+	// Make sure we clean up on exit
+	defer unsubclassTarget(targetHwnd)
 
 	// Graceful shutdown on Ctrl+C
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		<-sig
-		fmt.Println("\nShutting down hook...")
+		fmt.Println("\nShutting down...")
+		unsubclassTarget(targetHwnd)
 		os.Exit(0)
 	}()
 
-	fmt.Printf("Spying on HWND 0x%X (thread %d)... Press Ctrl+C to stop.\n", hwnd, tid)
+	fmt.Printf("Spying on HWND 0x%X... Interact with the window. Ctrl+C to stop.\n", targetHwnd)
 
-	// Message pump to keep program alive
+	// Message pump to keep the program alive
 	var msg MSG
 	for {
 		r, _, _ := procGetMessage.Call(uintptr(unsafe.Pointer(&msg)), 0, 0, 0)
