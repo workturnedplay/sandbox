@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"runtime"
+	"strconv"
 	"syscall"
 	"unsafe"
 
@@ -25,13 +27,17 @@ var (
 	hook windows.Handle
 )
 
+type POINT struct {
+	X, Y int32
+}
+
 type MSG struct {
 	Hwnd    windows.Handle
 	Message uint32
 	WParam  uintptr
 	LParam  uintptr
 	Time    uint32
-	Pt      windows.POINT
+	Pt      POINT
 }
 
 func hookCallback(code int, wParam uintptr, lParam uintptr) uintptr {
@@ -39,14 +45,19 @@ func hookCallback(code int, wParam uintptr, lParam uintptr) uintptr {
 		cwp := (*CWPSTRUCT)(unsafe.Pointer(lParam))
 		fmt.Printf("Msg: 0x%X, Hwnd: 0x%X, wParam: 0x%X, lParam: 0x%X\n", cwp.Message, cwp.Hwnd, cwp.WParam, cwp.LParam)
 	}
-	return syscall.MustLoadDLL("user32.dll").MustFindProc("CallNextHookEx").Call(0, uintptr(code), wParam, lParam)
+	//return syscall.MustLoadDLL("user32.dll").MustFindProc("CallNextHookEx").Call(0, uintptr(code), wParam, lParam)
+	r1, _, _ := syscall.MustLoadDLL("user32.dll").
+		MustFindProc("CallNextHookEx").
+		Call(0, uintptr(code), wParam, lParam)
+
+	return r1
 }
 
 type CWPSTRUCT struct {
-	LParam uintptr
-	WParam uintptr
+	LParam  uintptr
+	WParam  uintptr
 	Message uint32
-	Hwnd windows.Handle
+	Hwnd    windows.Handle
 }
 
 func enumCallback(hwnd uintptr, lParam uintptr) uintptr {
@@ -96,7 +107,9 @@ func main() {
 	var msg MSG
 	for {
 		r, _, _ := procGetMessage.Call(uintptr(unsafe.Pointer(&msg)), 0, 0, 0)
-		if int32(r) == 0 { break }
+		if int32(r) == 0 {
+			break
+		}
 		procTranslateMessage.Call(uintptr(unsafe.Pointer(&msg)))
 		procDispatchMessage.Call(uintptr(unsafe.Pointer(&msg)))
 	}
