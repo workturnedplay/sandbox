@@ -1,1 +1,4 @@
-best is 00 (grok+haiku made)
+best is 00 (grok+haiku made) because it detects glitch then resets it - must run as admin to reset it!
+
+the goal is to usbreset the razer keyboard if it's glitching
+it's glitching usually by spamming Prev. Track media key.
