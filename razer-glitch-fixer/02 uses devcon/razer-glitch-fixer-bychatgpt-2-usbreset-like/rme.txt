@@ -1,0 +1,1 @@
+github.com/workturnedplay/devcon.exe project on github has the devcon64.exe binary in it, it's a fork from someone.

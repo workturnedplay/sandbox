@@ -1,0 +1,176 @@
+package cfgbollocks
+
+import (
+	"strings"
+	"testing"
+)
+
+func TestBootstrapStrictness(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		wantErr bool
+		msg     string
+	}{
+		{
+			name:    "Valid Bootstrap",
+			input:   "cfgbollocks ~ ###\nformat=v1\n###\nkey ~ END\nvalue\nEND",
+			wantErr: false,
+		},
+		{
+			name:    "Leading Space Error",
+			input:   " cfgbollocks ~ ###\nformat=v1\n###",
+			wantErr: true,
+			msg:     "must start with cfgbollocks",
+		},
+		{
+			name:    "Leading Newline Error",
+			input:   "\ncfgbollocks ~ ###\nformat=v1\n###",
+			wantErr: true,
+			msg:     "must start with cfgbollocks",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := NewParser(strings.NewReader(tt.input))
+			_, err := p.Parse()
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Parse() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if tt.wantErr && err != nil && !strings.Contains(err.Error(), tt.msg) {
+				t.Errorf("Error message mismatch. Got: %v, Want to contain: %v", err.Error(), tt.msg)
+			}
+		})
+	}
+}
+
+func TestNormalizationAndChomp(t *testing.T) {
+	input := `cfgbollocks ~ ###
+format = v1
+[newline]
+normalize = lf
+[value]
+chomp_final_newline = true
+###
+message ~ EOF
+hello
+world
+EOF`
+
+	p := NewParser(strings.NewReader(input))
+	entries, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Failed to parse: %v", err)
+	}
+
+	// The value of 'message' should be "hello\nworld" (no trailing newline due to chomp)
+	// and should use \n regardless of host OS.
+	want := "hello\nworld"
+	if entries[1].Value != want {
+		t.Errorf("Value mismatch.\nGot:  %q\nWant: %q", entries[1].Value, want)
+	}
+}
+
+func TestMidFileGrammarChange(t *testing.T) {
+	input := `cfgbollocks ~ ###
+format = v1
+###
+first ~ END
+value1
+END
+cfgbollocks ~ ###
+[value]
+chomp_final_newline = true
+###
+second ~ END
+value2
+END`
+
+	p := NewParser(strings.NewReader(input))
+	entries, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Failed to parse: %v", err)
+	}
+
+	if len(entries) != 4 {
+		t.Fatalf("Expected 4 entries, got %d", len(entries))
+	}
+
+	// Verify the first 'first' entry kept its newline (default chomp is false)
+	if !strings.HasSuffix(entries[1].Value, "\n") {
+		t.Errorf("Expected first entry to retain newline")
+	}
+
+	// Verify the 'second' entry (after the second cfgbollocks) chomped its newline
+	if strings.HasSuffix(entries[3].Value, "\n") {
+		t.Errorf("Expected second entry to chomp newline")
+	}
+}
+
+func TestDuplicateKeysAndOrder(t *testing.T) {
+	input := `cfgbollocks ~ ###
+format = v1
+###
+item ~ END
+one
+END
+item ~ END
+two
+END`
+
+	p := NewParser(strings.NewReader(input))
+	entries, err := p.Parse()
+	if err != nil {
+		t.Fatalf("Failed to parse: %v", err)
+	}
+
+	if len(entries) != 3 { // bootstrap + 2 items
+		t.Errorf("Expected 3 entries, got %d", len(entries))
+	}
+
+	if entries[1].Value != "one\n" || entries[2].Value != "two\n" {
+		t.Errorf("Order or values incorrect")
+	}
+}
+
+func TestFailures(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		line  int
+	}{
+		{
+			name:  "Missing Separator",
+			input: "cfgbollocks ~ ###\nformat=v1\n###\nbadkey no_sep END\nval\nEND",
+			line:  5,
+		},
+		{
+			name:  "Unexpected EOF",
+			input: "cfgbollocks ~ ###\nformat=v1\n###\nkey ~ END\nmissing_end",
+			line:  6,
+		},
+		{
+			name:  "Content After Delimiter",
+			input: "cfgbollocks ~ ###\nformat=v1\n###\nkey ~ END illegal_extra\nval\nEND",
+			line:  4,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := NewParser(strings.NewReader(tt.input))
+			_, err := p.Parse()
+			if err == nil {
+				t.Errorf("Expected error but got none")
+			} else {
+				pe, ok := err.(*ParseError)
+				if !ok {
+					t.Errorf("Expected ParseError, got %T", err)
+				} else if pe.Line != tt.line {
+					t.Errorf("Error line mismatch. Got %d, Want %d (Error: %v)", pe.Line, tt.line, err)
+				}
+			}
+		})
+	}
+}

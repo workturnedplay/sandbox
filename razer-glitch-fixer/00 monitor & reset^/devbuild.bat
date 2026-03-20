@@ -1,0 +1,89 @@
+@echo off
+setlocal enabledelayedexpansion
+
+:: 0. Capture Workspace State
+:: Run this BEFORE you 'set GOWORK=off' if you want to know the original state
+set "WS_PATH="
+for /f "tokens=*" %%w in ('go env GOWORK') do set "WS_PATH=%%w"
+
+:: If WS_PATH is "off" or empty, we aren't in a workspace.
+:: Otherwise, WS_PATH contains the full path to your go.work file.
+if NOT "!WS_PATH!"=="off" if NOT "!WS_PATH!"=="" (
+    set "HAS_WORKSPACE=1"
+    :: Extract the directory from the full file path
+    echo Detected Workspace: !WS_PATH!
+) else (
+    set "HAS_WORKSPACE=0"
+)
+
+::if exist "..\go.work" (
+if "!HAS_WORKSPACE!"=="1" (
+  set "MOD_FLAG="
+  echo Running unvendored due to workspace
+) else (
+  :: Use vendor ONLY if we are NOT in a workspace
+  set "MOD_FLAG=-mod=vendor"
+  echo Running vendored due to lack of workspace
+)
+
+::if running as admin must get back to current dir:
+cd /d "%~dp0"
+
+::echo Cleaning Go cache
+::go clean -cache -modcache
+::if errorlevel 1 goto :fail
+
+echo Running go vet...
+:: ./... means “Walk the directory tree from here, find every Go package, and apply vet to each.”
+:: 'go vet' does:
+:: Full static analysis of the package
+:: Including unreachable code
+:: Including dead branches
+:: Including code not exercised by tests
+::go vet -mod=vendor ./...
+go vet !MOD_FLAG! -unsafeptr=false
+if errorlevel 1 goto :fail
+
+go build !MOD_FLAG! .
+if errorlevel 1 goto :fail
+::pause
+
+::When you build with: -ldflags "-H=windowsgui"
+::your binary is linked as a GUI subsystem executable (/SUBSYSTEM:WINDOWS), not a console subsystem one.
+::Consequences:
+::• No console is allocated
+::• stdout, stderr, and stdin do not exist
+::• panic, fmt.Println, log.Fatal, etc. have nowhere to write
+::• Windows shows nothing unless you explicitly create UI or log to disk
+
+::Without -H=windowsgui (default):
+::• Subsystem: Console
+::• A console window is attached or created
+::• fmt.Println, panic, logging all work
+::• On launch, a black console window appears
+::• Required for CLI tools or debugging
+::
+::With -H=windowsgui:
+::
+::• Subsystem: Windows GUI
+::• No console window
+::• Silent unless you implement logging or UI
+::• Correct for tray apps, background tools, shell helpers
+::• Required if you want “invisible” behavior
+::
+::Nothing else changes.
+::No runtime behavior differences.
+::No threading differences.
+::No input differences.
+::
+::This flag affects only how Windows initializes the process.
+
+echo Build succeeded.
+pause
+goto :eof
+
+:fail
+echo.
+echo *** BUILD FAILED ***
+pause
+exit /b 1

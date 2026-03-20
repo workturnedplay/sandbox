@@ -1,0 +1,755 @@
+﻿This conversation was generated with Duck.ai (https://duck.ai) using Anthropic's Claude Haiku 4.5 Model. AI chats may display inaccurate or offensive information (see https://duckduckgo.com/duckai/privacy-terms for more info).
+
+====================
+
+User prompt 1 of 2 - 3/18/2026, 9:24:19 AM:
+So I had this question:
+what's the equivalent of this on win11? #!/bin/bash keyvendorproduct="1532:0109" #Bus 001 Device 002: ID 1532:0109 Razer USA, Ltd Lycosa Keyboard bus=$(lsusb -d "$keyvendorproduct" |cut -f2 -d' ') dev=$(lsusb -d "$keyvendorproduct" |cut -f4 -d' '|cut -f1 -d:) #usbreset doesn't even need root! and it works! 12 oct 2022! usbreset "$bus"/"$dev" #on gentoo usbreset "$keyvendorproduct" #on gentoo #$ qfile usbreset #sys-apps/usbutils: /usr/bin/usbreset #that's the package that has lsusb !
+
+and I had a Go lang win11 equivalent of it by using devcon64.exe and it's working (keyboard leds go off then on again! which does reset the glitch) so if we could replicate that in Go that'd be great. Here's what worked:
+package main
+import (
+"fmt"
+"log"
+"os"
+    "os/exec"
+"unsafe"
+  "strings"
+"golang.org/x/sys/windows"
+)
+var (
+setupapi = windows.NewLazySystemDLL("setupapi.dll")
+procSetupDiGetClassDevs = setupapi.NewProc("SetupDiGetClassDevsW")
+procSetupDiEnumDeviceInfo = setupapi.NewProc("SetupDiEnumDeviceInfo")
+procSetupDiGetDeviceInstanceId = setupapi.NewProc("SetupDiGetDeviceInstanceIdW")
+procSetupDiGetDeviceRegistryProperty = setupapi.NewProc("SetupDiGetDeviceRegistryPropertyW")
+procSetupDiDestroyDeviceInfoList = setupapi.NewProc("SetupDiDestroyDeviceInfoList")
+)
+const (
+DIGCF_ALLCLASSES = 0x00000004
+DIGCF_PRESENT = 0x00000002
+SPDRP_DEVICEDESC = 0x00000000
+)
+type SP_DEVINFO_DATA struct {
+CbSize uint32
+ClassGuid windows.GUID
+DevInst uint32
+Reserved uintptr
+}
+func main() {
+devices, err := listDevices()
+if err != nil {
+log.Fatal(err)
+}
+for i, d := range devices {
+fmt.Printf("[%d] %s\n %s\n", i, d.InstanceID, d.Name)
+}
+var choice int
+fmt.Print("\nSelect device index to restart: ")
+fmt.Scanln(&choice)
+if choice < 0 || choice >= len(devices) {
+log.Fatal("invalid selection")
+}
+err = restartDevice(devices[choice].InstanceID)
+if err != nil {
+log.Fatal(err)
+}
+fmt.Println("Restart issued.")
+}
+type Device struct {
+InstanceID string
+Name string
+}
+func listDevices() ([]Device, error) {
+h, _, err := procSetupDiGetClassDevs.Call(
+0,
+0,
+0,
+DIGCF_ALLCLASSES, //|DIGCF_PRESENT,
+   
+)
+if h == 0 {
+return nil, err
+}
+defer procSetupDiDestroyDeviceInfoList.Call(h)
+var devices []Device
+for i := 0; ; i++ {
+var data SP_DEVINFO_DATA
+data.CbSize = uint32(unsafe.Sizeof(data))
+r1, _, _ := procSetupDiEnumDeviceInfo.Call(
+h,
+uintptr(i),
+uintptr(unsafe.Pointer(&data)),
+)
+if r1 == 0 {
+break
+}
+instance, _ := getInstanceID(h, &data)
+name, _ := getDeviceDesc(h, &data)
+if strings.Contains(instance, "VID_1532&PID_0109") {
+devices = append(devices, Device{
+InstanceID: instance,
+Name: name,
+})
+}
+}
+return devices, nil
+}
+func getInstanceID(h uintptr, data *SP_DEVINFO_DATA) (string, error) {
+buf := make([]uint16, 512)
+var required uint32
+r1, _, err := procSetupDiGetDeviceInstanceId.Call(
+h,
+uintptr(unsafe.Pointer(data)),
+uintptr(unsafe.Pointer(&buf[0])),
+uintptr(len(buf)),
+uintptr(unsafe.Pointer(&required)),
+)
+if r1 == 0 {
+return "", err
+}
+return windows.UTF16ToString(buf), nil
+}
+func getDeviceDesc(h uintptr, data *SP_DEVINFO_DATA) (string, error) {
+buf := make([]byte, 512)
+var regType uint32
+var required uint32
+r1, _, err := procSetupDiGetDeviceRegistryProperty.Call(
+h,
+uintptr(unsafe.Pointer(data)),
+SPDRP_DEVICEDESC,
+uintptr(unsafe.Pointer(&regType)),
+uintptr(unsafe.Pointer(&buf[0])),
+uintptr(len(buf)),
+uintptr(unsafe.Pointer(&required)),
+)
+if r1 == 0 {
+return "", err
+}
+return windows.UTF16ToString((*[256]uint16)(unsafe.Pointer(&buf[0]))[:]), nil
+}
+ 
+func restartDevice(instance string) error {
+  cmd := exec.Command(".\devcon64.exe", "restart", "@"+instance,)
+cmd.Stdout = os.Stdout
+cmd.Stderr = os.Stderr
+fmt.Printf("ARGS: %#v\n", cmd.Args)
+return cmd.Run()
+}
+
+Claude Haiku 4.5:
+You've got a solid working solution using `devcon64.exe`! To replicate that USB reset functionality directly in Go without relying on an external executable, you'll need to use **Windows Device I/O Control (IOCTL) calls** to send the reset command directly to the device driver. Here's how to do it:
+
+## Direct USB Reset via Windows API
+
+The key is to use **`DeviceIoControl`** with the **`IOCTL_USB_HUB_CYCLE_PORT`** or **`IOCTL_USB_GET_NODE_CONNECTION_INFORMATION_EX`** constants to reset the device. Here's a complete replacement for your `restartDevice` function:
+
+```go
+package main
+
+import (
+	"fmt"
+	"log"
+	"os"
+	"unsafe"
+	"strings"
+	"golang.org/x/sys/windows"
+)
+
+var (
+	setupapi = windows.NewLazySystemDLL("setupapi.dll")
+	kernel32 = windows.NewLazySystemDLL("kernel32.dll")
+	
+	procSetupDiGetClassDevs = setupapi.NewProc("SetupDiGetClassDevsW")
+	procSetupDiEnumDeviceInfo = setupapi.NewProc("SetupDiEnumDeviceInfo")
+	procSetupDiGetDeviceInstanceId = setupapi.NewProc("SetupDiGetDeviceInstanceIdW")
+	procSetupDiGetDeviceRegistryProperty = setupapi.NewProc("SetupDiGetDeviceRegistryPropertyW")
+	procSetupDiDestroyDeviceInfoList = setupapi.NewProc("SetupDiDestroyDeviceInfoList")
+	procSetupDiOpenDeviceInfo = setupapi.NewProc("SetupDiOpenDeviceInfoW")
+	procSetupDiGetDeviceInterfaceDetail = setupapi.NewProc("SetupDiGetDeviceInterfaceDetailW")
+	procSetupDiGetDeviceInterfaceData = setupapi.NewProc("SetupDiGetDeviceInterfaceDataW")
+	procCreateFileW = kernel32.NewProc("CreateFileW")
+	procCloseHandle = kernel32.NewProc("CloseHandle")
+	procDeviceIoControl = kernel32.NewProc("DeviceIoControl")
+)
+
+const (
+	DIGCF_ALLCLASSES = 0x00000004
+	DIGCF_PRESENT = 0x00000002
+	DIGCF_DEVICEINTERFACE = 0x00000010
+	SPDRP_DEVICEDESC = 0x00000000
+	
+	FILE_SHARE_READ = 0x00000001
+	FILE_SHARE_WRITE = 0x00000002
+	OPEN_EXISTING = 0x00000003
+	FILE_ATTRIBUTE_NORMAL = 0x00000080
+	
+	// USB IOCTL codes
+	IOCTL_USB_HUB_CYCLE_PORT = 0x220424
+)
+
+type SP_DEVINFO_DATA struct {
+	CbSize uint32
+	ClassGuid windows.GUID
+	DevInst uint32
+	Reserved uintptr
+}
+
+type SP_DEVICE_INTERFACE_DATA struct {
+	CbSize uint32
+	InterfaceClassGuid windows.GUID
+	Flags uint32
+	Reserved uintptr
+}
+
+type SP_DEVICE_INTERFACE_DETAIL_DATA struct {
+	CbSize uint32
+	DevicePath [260]uint16
+}
+
+func main() {
+	devices, err := listDevices()
+	if err != nil {
+		log.Fatal(err)
+	}
+	for i, d := range devices {
+		fmt.Printf("[%d] %s\n %s\n", i, d.InstanceID, d.Name)
+	}
+	var choice int
+	fmt.Print("\nSelect device index to restart: ")
+	fmt.Scanln(&choice)
+	if choice < 0 || choice >= len(devices) {
+		log.Fatal("invalid selection")
+	}
+	err = restartDevice(devices[choice].InstanceID)
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println("Device reset issued successfully.")
+}
+
+type Device struct {
+	InstanceID string
+	Name string
+}
+
+func listDevices() ([]Device, error) {
+	h, _, err := procSetupDiGetClassDevs.Call(
+		0,
+		0,
+		0,
+		DIGCF_ALLCLASSES,
+	)
+	if h == 0 {
+		return nil, err
+	}
+	defer procSetupDiDestroyDeviceInfoList.Call(h)
+	
+	var devices []Device
+	for i := 0; ; i++ {
+		var data SP_DEVINFO_DATA
+		data.CbSize = uint32(unsafe.Sizeof(data))
+		r1, _, _ := procSetupDiEnumDeviceInfo.Call(
+			h,
+			uintptr(i),
+			uintptr(unsafe.Pointer(&data)),
+		)
+		if r1 == 0 {
+			break
+		}
+		instance, _ := getInstanceID(h, &data)
+		name, _ := getDeviceDesc(h, &data)
+		if strings.Contains(instance, "VID_1532&PID_0109") {
+			devices = append(devices, Device{
+				InstanceID: instance,
+				Name: name,
+			})
+		}
+	}
+	return devices, nil
+}
+
+func getInstanceID(h uintptr, data *SP_DEVINFO_DATA) (string, error) {
+	buf := make([]uint16, 512)
+	var required uint32
+	r1, _, err := procSetupDiGetDeviceInstanceId.Call(
+		h,
+		uintptr(unsafe.Pointer(data)),
+		uintptr(unsafe.Pointer(&buf[0])),
+		uintptr(len(buf)),
+		uintptr(unsafe.Pointer(&required)),
+	)
+	if r1 == 0 {
+		return "", err
+	}
+	return windows.UTF16ToString(buf), nil
+}
+
+func getDeviceDesc(h uintptr, data *SP_DEVINFO_DATA) (string, error) {
+	buf := make([]byte, 512)
+	var regType uint32
+	var required uint32
+	r1, _, err := procSetupDiGetDeviceRegistryProperty.Call(
+		h,
+		uintptr(unsafe.Pointer(data)),
+		SPDRP_DEVICEDESC,
+		uintptr(unsafe.Pointer(&regType)),
+		uintptr(unsafe.Pointer(&buf[0])),
+		uintptr(len(buf)),
+		uintptr(unsafe.Pointer(&required)),
+	)
+	if r1 == 0 {
+		return "", err
+	}
+	return windows.UTF16ToString((*[256]uint16)(unsafe.Pointer(&buf[0]))[:]), nil
+}
+
+func restartDevice(instanceID string) error {
+	// Get the device interface GUID for USB devices
+	usbGUID := windows.GUID{
+		Data1: 0xA5DCBF10,
+		Data2: 0x6530,
+		Data3: 0x11D2,
+		Data4: [8]byte{0x90, 0x1F, 0x00, 0xC0, 0x4F, 0xB9, 0x51, 0xED},
+	}
+	
+	// Get device info set for USB devices
+	h, _, err := procSetupDiGetClassDevs.Call(
+		uintptr(unsafe.Pointer(&usbGUID)),
+		0,
+		0,
+		DIGCF_PRESENT | DIGCF_DEVICEINTERFACE,
+	)
+	if h == 0 {
+		return fmt.Errorf("SetupDiGetClassDevs failed: %v", err)
+	}
+	defer procSetupDiDestroyDeviceInfoList.Call(h)
+	
+	// Find the device matching our instance ID
+	for i := 0; ; i++ {
+		var data SP_DEVINFO_DATA
+		data.CbSize = uint32(unsafe.Sizeof(data))
+		
+		r1, _, _ := procSetupDiEnumDeviceInfo.Call(
+			h,
+			uintptr(i),
+			uintptr(unsafe.Pointer(&data)),
+		)
+		if r1 == 0 {
+			break
+		}
+		
+		instance, _ := getInstanceID(h, &data)
+		if instance != instanceID {
+			continue
+		}
+		
+		// Found our device, now get the device interface
+		var interfaceData SP_DEVICE_INTERFACE_DATA
+		interfaceData.CbSize = uint32(unsafe.Sizeof(interfaceData))
+		
+		r1, _, _ = procSetupDiGetDeviceInterfaceData.Call(
+			h,
+			uintptr(unsafe.Pointer(&data)),
+			uintptr(unsafe.Pointer(&usbGUID)),
+			uintptr(unsafe.Pointer(&interfaceData)),
+			0,
+		)
+		if r1 == 0 {
+			continue
+		}
+		
+		// Get the device path
+		var detailDataSize uint32
+		procSetupDiGetDeviceInterfaceDetail.Call(
+			h,
+			uintptr(unsafe.Pointer(&interfaceData)),
+			0,
+			0,
+			uintptr(unsafe.Pointer(&detailDataSize)),
+			0,
+		)
+		
+		detailData := make([]byte, detailDataSize)
+		*(*uint32)(unsafe.Pointer(&detailData[0])) = uint32(unsafe.Sizeof(SP_DEVICE_INTERFACE_DETAIL_DATA{}))
+		
+		r1, _, err = procSetupDiGetDeviceInterfaceDetail.Call(
+			h,
+			uintptr(unsafe.Pointer(&interfaceData)),
+			uintptr(unsafe.Pointer(&detailData[0])),
+			uintptr(len(detailData)),
+			uintptr(unsafe.Pointer(&detailDataSize)),
+			0,
+		)
+		if r1 == 0 {
+			return fmt.Errorf("SetupDiGetDeviceInterfaceDetail failed: %v", err)
+		}
+		
+		devicePath := windows.UTF16ToString((*[260]uint16)(unsafe.Pointer(&detailData[4]))[:])
+		
+		// Open the device
+		handle, _, err := procCreateFileW.Call(
+			uintptr(unsafe.Pointer(windows.StringToUTF16Ptr(devicePath))),
+			windows.GENERIC_READ | windows.GENERIC_WRITE,
+			FILE_SHARE_READ | FILE_SHARE_WRITE,
+			0,
+			OPEN_EXISTING,
+			FILE_ATTRIBUTE_NORMAL,
+			0,
+		)
+		if handle == windows.InvalidHandle {
+			return fmt.Errorf("CreateFileW failed: %v", err)
+		}
+		defer procCloseHandle.Call(handle)
+		
+		// Send the reset IOCTL
+		var bytesReturned uint32
+		r1, _, err = procDeviceIoControl.Call(
+			handle,
+			IOCTL_USB_HUB_CYCLE_PORT,
+			0,
+			0,
+			0,
+			0,
+			uintptr(unsafe.Pointer(&bytesReturned)),
+			0,
+		)
+		if r1 == 0 {
+			return fmt.Errorf("DeviceIoControl failed: %v", err)
+		}
+		
+		return nil
+	}
+	
+	return fmt.Errorf("device not found: %s", instanceID)
+}
+```
+
+---
+
+## Key Differences from Your Current Approach
+
+| Aspect | Current (devcon64.exe) | Direct IOCTL Approach |
+|--------|----------------------|----------------------|
+| **External Dependency** | Requires devcon64.exe to be present | Pure Go, no external tools needed |
+| **Permissions** | May require admin elevation | Requires admin elevation |
+| **Speed** | Slower (spawns external process) | Faster (direct API calls) |
+| **Portability** | Need to ship devcon64.exe | Single executable |
+| **Reliability** | Dependent on devcon version | Direct Windows API |
+
+---
+
+## Important Notes
+
+**Admin Privileges**: This code requires **administrator privileges** to work. You'll need to either run the executable as admin or use a manifest file to request elevation.
+
+**USB GUID**: The GUID I used (`A5DCBF10-6530-11D2-901F-00C0...`) is the standard USB device interface GUID. This should work for most USB devices on Windows 11.
+
+**Error Handling**: The current code uses `IOCTL_USB_HUB_CYCLE_PORT`, which cycles the USB port (power down then up). If you encounter issues, you might need to try alternative IOCTL codes depending on your specific hardware.
+
+**Testing**: Before deploying, test this with your Razer keyboard to confirm the LED behavior matches what you saw with `devcon64.exe`.
+
+Would you like me to add error recovery, logging, or handle any specific edge cases you've encountered?
+
+--------------------
+
+User prompt 2 of 2 - 3/18/2026, 9:25:48 AM:
+actually can we try it the way devcon does? that is via SetupDiCallClassInstaller/DIF_PROPERTYCHANGE
+
+Claude Haiku 4.5:
+Absolutely! That's actually a **cleaner approach** that mimics what `devcon` does under the hood. Here's the implementation using `SetupDiCallClassInstaller` with `DIF_PROPERTYCHANGE`:
+Perfect! Here's the Go implementation using `SetupDiCallClassInstaller` with `DIF_PROPERTYCHANGE` and `DICS_PROPCHANGE`, which is exactly what `devcon` uses:
+
+```go
+package main
+
+import (
+	"fmt"
+	"log"
+	"os"
+	"unsafe"
+	"strings"
+	"golang.org/x/sys/windows"
+)
+
+var (
+	setupapi = windows.NewLazySystemDLL("setupapi.dll")
+	
+	procSetupDiGetClassDevs = setupapi.NewProc("SetupDiGetClassDevsW")
+	procSetupDiEnumDeviceInfo = setupapi.NewProc("SetupDiEnumDeviceInfo")
+	procSetupDiGetDeviceInstanceId = setupapi.NewProc("SetupDiGetDeviceInstanceIdW")
+	procSetupDiGetDeviceRegistryProperty = setupapi.NewProc("SetupDiGetDeviceRegistryPropertyW")
+	procSetupDiDestroyDeviceInfoList = setupapi.NewProc("SetupDiDestroyDeviceInfoList")
+	procSetupDiSetClassInstallParams = setupapi.NewProc("SetupDiSetClassInstallParamsW")
+	procSetupDiCallClassInstaller = setupapi.NewProc("SetupDiCallClassInstaller")
+	procSetupDiGetDeviceInstallParams = setupapi.NewProc("SetupDiGetDeviceInstallParamsW")
+)
+
+const (
+	DIGCF_ALLCLASSES = 0x00000004
+	DIGCF_PRESENT = 0x00000002
+	SPDRP_DEVICEDESC = 0x00000000
+	
+	// DIF codes
+	DIF_PROPERTYCHANGE = 0x00000012
+	
+	// State change codes
+	DICS_ENABLE = 0x00000001
+	DICS_DISABLE = 0x00000002
+	DICS_PROPCHANGE = 0x00000003
+	
+	// Scope flags
+	DICS_FLAG_GLOBAL = 0x00000001
+	DICS_FLAG_CONFIGSPECIFIC = 0x00000002
+	
+	// Device install params flags
+	DI_NEEDRESTART = 0x00000001
+	DI_NEEDREBOOT = 0x00000010
+)
+
+type SP_DEVINFO_DATA struct {
+	CbSize uint32
+	ClassGuid windows.GUID
+	DevInst uint32
+	Reserved uintptr
+}
+
+type SP_CLASSINSTALL_HEADER struct {
+	CbSize uint32
+	InstallFunction uint32
+}
+
+type SP_PROPCHANGE_PARAMS struct {
+	ClassInstallHeader SP_CLASSINSTALL_HEADER
+	StateChange uint32
+	Scope uint32
+	HwProfile uint32
+}
+
+type SP_DEVINSTALL_PARAMS struct {
+	CbSize uint32
+	Flags uint32
+	FlagsEx uint32
+	hwndParent uintptr
+	InstallMsgHandler uintptr
+	InstallMsgContext uintptr
+	FileQueue uintptr
+	ClassInstallReserved uintptr
+	Reserved uint32
+	DriverPath [260]uint16
+}
+
+func main() {
+	devices, err := listDevices()
+	if err != nil {
+		log.Fatal(err)
+	}
+	for i, d := range devices {
+		fmt.Printf("[%d] %s\n %s\n", i, d.InstanceID, d.Name)
+	}
+	var choice int
+	fmt.Print("\nSelect device index to restart: ")
+	fmt.Scanln(&choice)
+	if choice < 0 || choice >= len(devices) {
+		log.Fatal("invalid selection")
+	}
+	err = restartDevice(devices[choice].InstanceID)
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println("Device reset issued successfully.")
+}
+
+type Device struct {
+	InstanceID string
+	Name string
+}
+
+func listDevices() ([]Device, error) {
+	h, _, err := procSetupDiGetClassDevs.Call(
+		0,
+		0,
+		0,
+		DIGCF_ALLCLASSES,
+	)
+	if h == 0 {
+		return nil, err
+	}
+	defer procSetupDiDestroyDeviceInfoList.Call(h)
+	
+	var devices []Device
+	for i := 0; ; i++ {
+		var data SP_DEVINFO_DATA
+		data.CbSize = uint32(unsafe.Sizeof(data))
+		r1, _, _ := procSetupDiEnumDeviceInfo.Call(
+			h,
+			uintptr(i),
+			uintptr(unsafe.Pointer(&data)),
+		)
+		if r1 == 0 {
+			break
+		}
+		instance, _ := getInstanceID(h, &data)
+		name, _ := getDeviceDesc(h, &data)
+		if strings.Contains(instance, "VID_1532&PID_0109") {
+			devices = append(devices, Device{
+				InstanceID: instance,
+				Name: name,
+			})
+		}
+	}
+	return devices, nil
+}
+
+func getInstanceID(h uintptr, data *SP_DEVINFO_DATA) (string, error) {
+	buf := make([]uint16, 512)
+	var required uint32
+	r1, _, err := procSetupDiGetDeviceInstanceId.Call(
+		h,
+		uintptr(unsafe.Pointer(data)),
+		uintptr(unsafe.Pointer(&buf[0])),
+		uintptr(len(buf)),
+		uintptr(unsafe.Pointer(&required)),
+	)
+	if r1 == 0 {
+		return "", err
+	}
+	return windows.UTF16ToString(buf), nil
+}
+
+func getDeviceDesc(h uintptr, data *SP_DEVINFO_DATA) (string, error) {
+	buf := make([]byte, 512)
+	var regType uint32
+	var required uint32
+	r1, _, err := procSetupDiGetDeviceRegistryProperty.Call(
+		h,
+		uintptr(unsafe.Pointer(data)),
+		SPDRP_DEVICEDESC,
+		uintptr(unsafe.Pointer(&regType)),
+		uintptr(unsafe.Pointer(&buf[0])),
+		uintptr(len(buf)),
+		uintptr(unsafe.Pointer(&required)),
+	)
+	if r1 == 0 {
+		return "", err
+	}
+	return windows.UTF16ToString((*[256]uint16)(unsafe.Pointer(&buf[0]))[:]), nil
+}
+
+func restartDevice(instanceID string) error {
+	// Get all devices
+	h, _, err := procSetupDiGetClassDevs.Call(
+		0,
+		0,
+		0,
+		DIGCF_ALLCLASSES,
+	)
+	if h == 0 {
+		return fmt.Errorf("SetupDiGetClassDevs failed: %v", err)
+	}
+	defer procSetupDiDestroyDeviceInfoList.Call(h)
+	
+	// Find the device matching our instance ID
+	for i := 0; ; i++ {
+		var data SP_DEVINFO_DATA
+		data.CbSize = uint32(unsafe.Sizeof(data))
+		
+		r1, _, _ := procSetupDiEnumDeviceInfo.Call(
+			h,
+			uintptr(i),
+			uintptr(unsafe.Pointer(&data)),
+		)
+		if r1 == 0 {
+			break
+		}
+		
+		instance, _ := getInstanceID(h, &data)
+		if instance != instanceID {
+			continue
+		}
+		
+		// Found our device! Now issue the property change
+		return propertyChange(h, &data)
+	}
+	
+	return fmt.Errorf("device not found: %s", instanceID)
+}
+
+func propertyChange(h uintptr, devInfo *SP_DEVINFO_DATA) error {
+	// Set up the property change params with DICS_PROPCHANGE (cycle the device)
+	var pcp SP_PROPCHANGE_PARAMS
+	pcp.ClassInstallHeader.CbSize = uint32(unsafe.Sizeof(pcp.ClassInstallHeader))
+	pcp.ClassInstallHeader.InstallFunction = DIF_PROPERTYCHANGE
+	pcp.StateChange = DICS_PROPCHANGE
+	pcp.Scope = DICS_FLAG_CONFIGSPECIFIC
+	pcp.HwProfile = 0
+	
+	// Set the class install params
+	r1, _, err := procSetupDiSetClassInstallParams.Call(
+		h,
+		uintptr(unsafe.Pointer(devInfo)),
+		uintptr(unsafe.Pointer(&pcp.ClassInstallHeader)),
+		uintptr(unsafe.Sizeof(pcp)),
+	)
+	if r1 == 0 {
+		return fmt.Errorf("SetupDiSetClassInstallParams failed: %v", err)
+	}
+	
+	// Call the class installer
+	r1, _, err = procSetupDiCallClassInstaller.Call(
+		DIF_PROPERTYCHANGE,
+		h,
+		uintptr(unsafe.Pointer(devInfo)),
+	)
+	if r1 == 0 {
+		return fmt.Errorf("SetupDiCallClassInstaller failed: %v", err)
+	}
+	
+	// Check if reboot is required
+	var devParams SP_DEVINSTALL_PARAMS
+	devParams.CbSize = uint32(unsafe.Sizeof(devParams))
+	r1, _, err = procSetupDiGetDeviceInstallParams.Call(
+		h,
+		uintptr(unsafe.Pointer(devInfo)),
+		uintptr(unsafe.Pointer(&devParams)),
+	)
+	if r1 != 0 && (devParams.Flags&DI_NEEDRESTART != 0 || devParams.Flags&DI_NEEDREBOOT != 0) {
+		fmt.Println("Note: Device reboot may be required.")
+	}
+	
+	return nil
+}
+```
+
+---
+
+## Key Differences from the IOCTL Approach
+
+| Aspect | IOCTL Approach | SetupDiCallClassInstaller |
+|--------|----------------|--------------------------|
+| **Method** | Direct USB port cycling | Device class installer callback |
+| **What devcon uses** | No | **Yes** ✓ |
+| **Complexity** | More direct | Follows Windows driver model |
+| **Reliability** | Device-specific | Works with any device with proper driver |
+| **Scope** | USB-specific | Works across all device types |
+
+---
+
+## How It Works
+
+**`DICS_PROPCHANGE`** tells the class installer to **cycle the device** (disable then enable), which is **exactly what `devcon restart` does**. The key steps are:
+
+1. **Find the device** by instance ID
+2. **Set the property change params** with `DICS_PROPCHANGE` scope
+3. **Call the class installer** to invoke the property change
+4. **Check if reboot is needed**
+
+This approach is **much more aligned with what Windows Device Manager does** and is **what `devcon` itself uses under the hood**.
+
+---
+
+## Admin Privileges Required
+
+This still requires **administrator elevation** to work. The LED behavior should match what you saw with `devcon64.exe` — the keyboard should reset its state.
+
+Try this version and let me know if the LED reset behavior matches!

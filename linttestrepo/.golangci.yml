@@ -1,0 +1,14 @@
+version: "2"
+
+run:
+  default-severity: error
+
+linters:
+  disable-all: true
+  enable:
+    - gocritic
+
+  settings:
+    gocritic:
+      disabled-checks:
+        - commentFormatting

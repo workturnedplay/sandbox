@@ -1,0 +1,6 @@
+both work!
+
+main.go made by claude haiku 4.5 via duck.ai, allows picking any from a list because I wanted this.
+
+sonnet46.go made by claude sonnet 4.6 via claude.ai, directly targetting my keyboard, no picking from list.
+

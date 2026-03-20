@@ -1,0 +1,1 @@
+fails to do it but also disables it in Device Manager so when u reboot or do the reset that works it remains disabled, u've to use mouse to enable it, or perhaps plug into diff. socket(might work, untested)

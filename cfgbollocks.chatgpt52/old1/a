@@ -1,0 +1,17 @@
+#!/usr/bin/bash
+
+(cat <<EOF
+EOF
+) | od -x
+echo
+
+(cat <<EOF
+
+EOF
+) |od -x
+echo
+
+(cat <<EOF
+a
+EOF
+) |od -x

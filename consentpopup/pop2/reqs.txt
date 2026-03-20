@@ -1,0 +1,4 @@
+https://github.com/bycloudai/InstallVSBuildToolsWindows?tab=readme-ov-file
+
+Download & install Microsoft C++ Build Tools from https://visualstudio.microsoft.com/visual-cpp-build-tools/
+or follow instruction how to do it from the above gh link
