@@ -28,8 +28,8 @@ import (
 	"sync"
 	"time"
 	//hook "github.com/robotn/gohook"
-	//"github.com/workturnedplay/wincoe"
 	"errors"
+	"github.com/workturnedplay/wincoe"
 	"golang.org/x/sys/windows"
 	"unsafe"
 )
@@ -191,12 +191,14 @@ var (
 // 	return nil
 // }
 
+const WAIT_FOR_GLITCH_SECONDS = 10
+
 func main() {
 	runtime.LockOSThread()
 	defer deinit()
 
 	fmt.Println("Razer Glitch Fixer starting... (must run as Administrator to can usbreset the keyboard)")
-	//fmt.Println("Press Ctrl+Shift+Q to quit cleanly.")
+	fmt.Printf("Waiting %d seconds for glitch to happen.\n", WAIT_FOR_GLITCH_SECONDS)
 
 	// if err := initRazerInstanceID(); err != nil {
 	// 	logf("Fatal: %v — cannot continue without InstanceId", err)
@@ -229,12 +231,16 @@ func main() {
 	// s := hook.Start()
 	// <-hook.Process(s) // this also handles the registered quit hotkey
 
-	time.Sleep(10 * time.Second) // wait longer so that after reset the glitch might still happen(ie. anew) then we can reset again!
+	time.Sleep(WAIT_FOR_GLITCH_SECONDS * time.Second) // wait longer so that after reset the glitch might still happen(ie. anew) then we can reset again!
 
 	deinit()
-	logf("Press Enter to exit... TODO: use any key and clrbuf before&after")
-	var dummy string
-	_, _ = fmt.Scanln(&dummy)
+	time.Sleep(1 * time.Second) // so that the following is last msg
+	// logf("Press Enter to exit... doneTODO: use any key and clrbuf before&after")
+	// var dummy string
+	// _, _ = fmt.Scanln(&dummy)
+	if !wincoe.WaitAnyKeyIfInteractive() {
+		logf("Didn't wait for keypress due to not an interactive/terminal.")
+	}
 
 	logf("main() finished.")
 }
