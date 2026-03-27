@@ -1,0 +1,1 @@
+* after glitch/resetting, reset the time to wait for glitch as well, because glitch can sometimes happen twice, or maybe more times, so we need to reset as many times as needed, not run out of time and exit!
