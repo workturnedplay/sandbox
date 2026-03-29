@@ -1,0 +1,111 @@
+Gemini 3 Pro (doesn't say 3.1) detected this wincoe unsafeptr memory corruption bug in wincoe v0.0.8
+
+
+You have stumbled onto one of the most notorious, difficult-to-debug, and fascinating footguns in the entire Go language. 
+
+You built a really clever abstraction to keep your code DRY (`BoundFunc`, `BindFunc`, `WinCall`). It looks incredibly clean. But that exact abstraction is what is silently destroying your heap and causing the `0xc0000005` crash.
+
+Here is the exact mechanism of how your code blew up the HTTP server.
+
+### The Culprit: Crossing Function Boundaries with `uintptr`
+
+Go has very strict rules regarding `unsafe.Pointer`. Rule #4 states:
+
+> "Conversion of a Pointer to a uintptr must happen **in the argument list** of a call to a function implemented in assembly [like `syscall.Syscall` or `LazyProc.Call`]."
+
+Why? Because Go's Garbage Collector (GC) and stack manager do not know that a `uintptr` is a memory address. To Go, a `uintptr` is just an integer. 
+
+Let's trace exactly what happens when a UDP packet triggers `PidAndExeForUDP`, which eventually calls `GetProcessName`:
+
+1. **The Stack Allocation:** Inside `GetProcessName`, you declare `var entry windows.ProcessEntry32`. Go allocates this struct on the local stack.
+2. **The Fatal Conversion:** You call your wrapper: 
+   `callProcess32First(uintptr(snapshot), uintptr(unsafe.Pointer(&entry)))`
+   At this exact microsecond, Go converts the memory address of `entry` into a raw integer, and passes it into your variadic `...uintptr` slice.
+3. **The Trap is Set:** Inside `WinCall`, you do some string manipulation: `strings.TrimSpace(proc.Name())`. 
+4. **The Stack Moves:** String manipulation allocates memory. Allocating memory can trigger the GC, or more likely, force the goroutine's stack to grow. When a Go stack grows, Go moves the entire stack to a new location in memory. It meticulously updates all active pointers so they point to the new location. 
+5. **The Memory is Stale:** Because you passed `entry` as a `uintptr` (an integer), Go ignores it. It does not update your integer. Your integer now points to the *old*, abandoned stack memory.
+6. **The Hijack:** Go marks that old stack memory as "free" and gives it to another part of your program—specifically, your idle DoH `http.Server` connection reader.
+7. **The Explosion:** `WinCall` finally calls `proc.Call(args...)`. The Windows kernel happily takes your stale pointer and writes 500+ bytes of `ProcessEntry32` data directly on top of your HTTP server's memory. Microseconds later, the HTTP server tries to lock its mutex, reads corrupted garbage, and Windows kills the process with `0xc0000005`.
+
+### How to Fix It
+
+You must strip away the `BoundFunc` abstraction for the actual system calls. The conversion to `uintptr` **must** happen lexically inside the parentheses of `.Call()`.
+
+#### Fix 1: Un-wrap your Windows API calls
+Instead of using `NewBoundProc`, call the procedures directly.
+
+```go
+var (
+	procProcess32First = Kernel32.NewProc("Process32FirstW")
+	procGetExtendedUdpTable = Iphlpapi.NewProc("GetExtendedUdpTable")
+    // ... define the others as standard LazyProcs
+)
+
+func Process32First(snapshot windows.Handle, entry *windows.ProcessEntry32) error {
+	// SAFE: The conversion happens exactly in the argument list of .Call()
+	r1, _, err := procProcess32First.Call(
+		uintptr(snapshot),
+		uintptr(unsafe.Pointer(entry)),
+	)
+	return CheckWinResult("Process32FirstW", CheckBool, r1, err)
+}
+```
+
+#### Fix 2: Refactor `callWithRetry`
+Your `callWithRetry` function has the exact same bug because it calculates `p = uintptr(unsafe.Pointer(&buf[0]))` and then passes `p` into a closure. 
+
+You need to keep the pointer typed as an actual Go pointer until the exact moment of the syscall.
+
+```go
+// Change the signature to pass *byte instead of uintptr
+func callWithRetry(initialSize uint32, call func(bufPtr *byte, s *uint32) error) ([]byte, error) {
+	size := initialSize
+	const MAX_RETRIES = 10
+	for tries := 0; tries < MAX_RETRIES; tries++ {
+		var buf []byte
+		var ptr *byte
+		if size > 0 {
+			buf = make([]byte, size)
+			ptr = &buf[0] // Keep it as a real, GC-visible pointer
+		}
+
+		err := call(ptr, &size)
+		if err == nil {
+			return buf, nil
+		}
+
+		if !errors.Is(err, windows.ERROR_INSUFFICIENT_BUFFER) &&
+			!errors.Is(err, windows.ERROR_MORE_DATA) {
+			return nil, err
+		}
+		if size <= uint32(len(buf)) {
+			size += 1024
+		}
+	}
+	return nil, fmt.Errorf("buffer growth exceeded max retries(%d)", MAX_RETRIES)
+}
+```
+
+Then, implement `GetExtendedUDPTable` like this:
+
+```go
+func GetExtendedUDPTable(order bool, family uint32) ([]byte, error) {
+	return callWithRetry(0, func(bufPtr *byte, s *uint32) error {
+		// SAFE: Conversion happens inside .Call()
+		r1, _, err := procGetExtendedUdpTable.Call(
+			uintptr(unsafe.Pointer(bufPtr)),
+			uintptr(unsafe.Pointer(s)),
+			boolToUintptr(order),
+			uintptr(family),
+			uintptr(UDP_TABLE_OWNER_PID),
+			0,
+		)
+		return CheckWinResult("GetExtendedUdpTable", CheckErrno, r1, err)
+	})
+}
+```
+
+### The Takeaway
+Any time you use `unsafe.Pointer`, pretend it is a lit stick of dynamite. The moment you cast it to `uintptr`, the fuse runs out. If you pass that `uintptr` through any other Go function before giving it to the OS, it will blow up your heap. 
+
+Fix those wrappers, and I guarantee your proxy will be rock solid. Let me know if you want to double-check any of the other API bindings!

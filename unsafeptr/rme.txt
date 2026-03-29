@@ -1,0 +1,7 @@
+the correct code is in:
+
+shouldfail2\
+AND
+fixed2notfail2\
+
+the other ones that don't fail are just lucky! or plain obvious they should fail!
