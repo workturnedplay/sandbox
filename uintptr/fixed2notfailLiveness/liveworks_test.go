@@ -1,4 +1,5 @@
-package unsafeptr_corruption
+//useless chatgpt slop
+package uintptr_corruption
 
 import (
 	"runtime"
@@ -6,27 +7,24 @@ import (
 	"unsafe"
 )
 
-
-func TestGCUnsafe_Fail(t *testing.T) {
+func TestGCUnsafe_Fixed(t *testing.T) {
 	buf := make([]byte, 8)
 
 	addr := uintptr(unsafe.Pointer(&buf[0]))
-
-	// Drop the reference early (compiler may treat buf as dead after this point)
-	buf2 := buf
-	buf = nil
 
 	runtime.GC()
 
 	simulateSyscall(addr)
 
-	// buf2 is never used → compiler may consider underlying memory dead
+	// Critical: keep original object alive until AFTER syscall
+	//runtime.KeepAlive(buf)
+
 	if *(*uint64)(unsafe.Pointer(addr)) != 0xDEADBEEFCAFEBABE {
 		t.Fatalf("write failed or corrupted")
 	}
 }
 
-
+// This go:uintptrescapes has no effect if args don't have the uintptr cast:
 //go:uintptrescapes
 // simulateSyscall simulates a Windows API writing 8 bytes to a pointer.
 func simulateSyscall(addr uintptr) {
