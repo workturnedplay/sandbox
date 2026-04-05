@@ -1,0 +1,20 @@
+there's no problem there with &flags being on stack when passed to syscall.WSARecvFrom
+aka
+grrr, after wasting time, now it checked the real docs (on my request):
+
+Let me search for the actual MSDN docs on this.This is the critical quote from MSDN, stated clearly in multiple places:
+
+In the case of delayed completion, the value pointed to by lpFlags is **not updated**. When completion has been indicated the application should call `WSAGetOverlappedResult` and examine the flags pointed to by the `lpdwFlags` parameter.
+
+## This changes everything
+
+**Windows does NOT write to `&flags` on IOCP completion.** It writes the flags into a separate output parameter of `WSAGetOverlappedResult` instead. So `&flags` is only read as input (e.g. `MSG_PEEK`) when `IO_PENDING`, and then **never touched again by Windows**.
+
+This means:
+- The address corruption we were hunting doesn't happen via `&flags`
+- The `oldVal = 0` you saw was just Go's zero initialization, never overwritten by Windows
+- The `573` was pure coincidence from memory reuse
+
+## So what IS the actual bug?
+
+Look at what Go's `execIO` does with the completion — it calls `WSAGetOverlappedResult` which writes flags to its own `lpdwFlags` parameter, not back to the original `&flags`. The original `&flags` is genuinely a dead variable after `IO_PENDING`. The real bug in the Go issue #77975 must be about something else — likely `&o.o` (the `OVERLAPPED` struct itself) or the data buffer addresses being on a moved stack, not `&flags`.

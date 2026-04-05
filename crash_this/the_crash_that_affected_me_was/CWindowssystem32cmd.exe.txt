@@ -1,0 +1,472 @@
+
+d:\my-projects\sandbox\crash_this\addrofflags>set GODEBUG=gcshrinkstackoff=1
+
+d:\my-projects\sandbox\crash_this\addrofflags>go run repro_flags_bug.go
+Starting reproduction attempt...
+If the bug hits, the program will likely crash with 'ret' or 'unwinder' errors.
+Iteration 0...
+fatal error: unexpected signal during runtime execution
+[signal 0xc0000005 code=0x0 addr=0x1de5fe2e5fb0 pc=0x7ff746bb0f6d]
+
+runtime stack:
+runtime.throw({0x7ff746c6521a?, 0x7ff746b7ec00?})
+        d:/custom-go/go/src/runtime/panic.go:1244 +0x4d fp=0x75523ff0f8 sp=0x75523ff0c8 pc=0x7ff746bea3ed
+runtime.sigpanic()
+        d:/custom-go/go/src/runtime/signal_windows.go:379 +0x265 fp=0x75523ff140 sp=0x75523ff0f8 pc=0x7ff746bcdec5
+runtime.pollOperationFromOverlappedEntry(...)
+        d:/custom-go/go/src/runtime/netpoll_windows.go:78
+runtime.netpoll(0x0?)
+        d:/custom-go/go/src/runtime/netpoll_windows.go:212 +0x2cd fp=0x75523ff9f8 sp=0x75523ff140 pc=0x7ff746bb0f6d
+runtime.startTheWorldWithSema(0x0, {0x0?, 0x28?, 0x88?, 0x7ff746db2730?})
+        d:/custom-go/go/src/runtime/proc.go:1769 +0x45 fp=0x75523ffa68 sp=0x75523ff9f8 pc=0x7ff746bbc185
+runtime.gcStart.func4()
+        d:/custom-go/go/src/runtime/mgc.go:930 +0x37 fp=0x75523ffab0 sp=0x75523ffa68 pc=0x7ff746b93e17
+runtime.systemstack(0x1de5fe2c50e0)
+        d:/custom-go/go/src/runtime/asm_amd64.s:531 +0x49 fp=0x75523ffac0 sp=0x75523ffab0 pc=0x7ff746beed49
+
+goroutine 66 gp=0x1de5fe27b680 m=7 mp=0x1de5fe380808 [running]:
+runtime.systemstack_switch()
+        d:/custom-go/go/src/runtime/asm_amd64.s:481 +0x8 fp=0x1de5fe240c50 sp=0x1de5fe240c40 pc=0x7ff746beece8
+runtime.gcStart({0x1de500000032?, 0x7ff746c5ab05?, 0x2710?})
+        d:/custom-go/go/src/runtime/mgc.go:929 +0x653 fp=0x1de5fe240d68 sp=0x1de5fe240c50 pc=0x7ff746b93c53
+runtime.GC()
+        d:/custom-go/go/src/runtime/mgc.go:555 +0x3b fp=0x1de5fe240da0 sp=0x1de5fe240d68 pc=0x7ff746b9333b
+main.growAndCorrupt(0x0?, 0x0?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:143 +0x2f fp=0x1de5fe240dc8 sp=0x1de5fe240da0 pc=0x7ff746c5aa6f
+main.growAndCorrupt(0x0?, 0x0?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe240df0 sp=0x1de5fe240dc8 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x0?, 0x0?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe240e18 sp=0x1de5fe240df0 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x0?, 0x0?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe240e40 sp=0x1de5fe240e18 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x0?, 0x0?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe240e68 sp=0x1de5fe240e40 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x0?, 0x0?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe240e90 sp=0x1de5fe240e68 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x0?, 0x0?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe240eb8 sp=0x1de5fe240e90 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x0?, 0x0?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe240ee0 sp=0x1de5fe240eb8 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x0?, 0x0?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe240f08 sp=0x1de5fe240ee0 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x0?, 0x0?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe240f30 sp=0x1de5fe240f08 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x0?, 0x0?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe240f58 sp=0x1de5fe240f30 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x0?, 0x1de5fe240fc8?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe240f80 sp=0x1de5fe240f58 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x7ff746c1be00?, 0x1de5fe236210?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe240fa8 sp=0x1de5fe240f80 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x7ff746c1d01c?, 0x7ff746b8d83e?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe240fd0 sp=0x1de5fe240fa8 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0xa00000000?, 0x0?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe240ff8 sp=0x1de5fe240fd0 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x25cf677dab0?, 0x0?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe241020 sp=0x1de5fe240ff8 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x1de5fe241088?, 0x7ff746b9ec85?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe241048 sp=0x1de5fe241020 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x7ff746b9edbc?, 0x7ff746dda8a0?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe241070 sp=0x1de5fe241048 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x25cf677dab0?, 0x7ffe52ac3c70?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe241098 sp=0x1de5fe241070 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x1de5fe27b680?, 0x1de5fe24e008?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe2410c0 sp=0x1de5fe241098 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x1de5fe272008?, 0x1de5fe27b680?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe2410e8 sp=0x1de5fe2410c0 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x7ff746bca669?, 0x1de5fe241140?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe241110 sp=0x1de5fe2410e8 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x1de5fe2411a8?, 0x7ff746bc1b72?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe241138 sp=0x1de5fe241110 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x0?, 0x0?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe241160 sp=0x1de5fe241138 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x0?, 0x0?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe241188 sp=0x1de5fe241160 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x7ff746bea69f?, 0x7ff746be80fe?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe2411b0 sp=0x1de5fe241188 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x7ff746be8194?, 0x7ff746beed37?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe2411d8 sp=0x1de5fe2411b0 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x25cfbad1b40?, 0x7ff746ba5580?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe241200 sp=0x1de5fe2411d8 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0xa?, 0x1de5fe241260?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe241228 sp=0x1de5fe241200 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x7ff746bca669?, 0x25cfbad1b40?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe241250 sp=0x1de5fe241228 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x0?, 0x64fe2412e0?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe241278 sp=0x1de5fe241250 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x1de500000000?, 0x234?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe2412a0 sp=0x1de5fe241278 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x0?, 0x0?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe2412c8 sp=0x1de5fe2412a0 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x400000?, 0x1de5fe241338?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe2412f0 sp=0x1de5fe2412c8 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x1de5fe241350?, 0x7ff746b895f7?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe241318 sp=0x1de5fe2412f0 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x7ff746b935b6?, 0x7ff746dda8a0?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe241340 sp=0x1de5fe241318 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x1de5fe2413f0?, 0x7ff746c098a5?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe241368 sp=0x1de5fe241340 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x3f?, 0x64?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe241390 sp=0x1de5fe241368 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x0?, 0x0?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe2413b8 sp=0x1de5fe241390 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x0?, 0x0?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe2413e0 sp=0x1de5fe2413b8 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x0?, 0x0?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe241408 sp=0x1de5fe2413e0 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x0?, 0x0?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe241430 sp=0x1de5fe241408 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x0?, 0x0?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe241458 sp=0x1de5fe241430 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x0?, 0x0?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe241480 sp=0x1de5fe241458 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x0?, 0x0?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe2414a8 sp=0x1de5fe241480 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x0?, 0x0?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe2414d0 sp=0x1de5fe2414a8 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x0?, 0x0?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe2414f8 sp=0x1de5fe2414d0 pc=0x7ff746c5aa5f
+...5 frames elided...
+main.growAndCorrupt(0x0?, 0x0?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe2415e8 sp=0x1de5fe2415c0 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x0?, 0x0?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe241610 sp=0x1de5fe2415e8 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x0?, 0x0?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe241638 sp=0x1de5fe241610 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x0?, 0x0?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe241660 sp=0x1de5fe241638 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x0?, 0x0?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe241688 sp=0x1de5fe241660 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x0?, 0x0?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe2416b0 sp=0x1de5fe241688 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x0?, 0x0?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe2416d8 sp=0x1de5fe2416b0 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x0?, 0x0?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe241700 sp=0x1de5fe2416d8 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x0?, 0x0?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe241728 sp=0x1de5fe241700 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x0?, 0x0?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe241750 sp=0x1de5fe241728 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x0?, 0x0?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe241778 sp=0x1de5fe241750 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x0?, 0x0?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe2417a0 sp=0x1de5fe241778 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x0?, 0x0?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe2417c8 sp=0x1de5fe2417a0 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x0?, 0x0?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe2417f0 sp=0x1de5fe2417c8 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x0?, 0x0?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe241818 sp=0x1de5fe2417f0 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x0?, 0x0?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe241840 sp=0x1de5fe241818 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x0?, 0x0?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe241868 sp=0x1de5fe241840 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x0?, 0x0?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe241890 sp=0x1de5fe241868 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x0?, 0x0?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe2418b8 sp=0x1de5fe241890 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x0?, 0x0?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe2418e0 sp=0x1de5fe2418b8 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x0?, 0x0?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe241908 sp=0x1de5fe2418e0 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x0?, 0x0?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe241930 sp=0x1de5fe241908 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x0?, 0x0?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe241958 sp=0x1de5fe241930 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x0?, 0x0?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe241980 sp=0x1de5fe241958 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x0?, 0x0?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe2419a8 sp=0x1de5fe241980 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x0?, 0x0?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe2419d0 sp=0x1de5fe2419a8 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x0?, 0x0?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe2419f8 sp=0x1de5fe2419d0 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x0?, 0x0?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe241a20 sp=0x1de5fe2419f8 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x0?, 0x0?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe241a48 sp=0x1de5fe241a20 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x0?, 0x0?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe241a70 sp=0x1de5fe241a48 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x0?, 0x0?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe241a98 sp=0x1de5fe241a70 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x0?, 0x0?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe241ac0 sp=0x1de5fe241a98 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x0?, 0x0?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe241ae8 sp=0x1de5fe241ac0 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x0?, 0x0?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe241b10 sp=0x1de5fe241ae8 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x0?, 0x0?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe241b38 sp=0x1de5fe241b10 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x1de5fe27b680?, 0x1de5fe272008?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe241b60 sp=0x1de5fe241b38 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x0?, 0x7ff746bca669?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe241b88 sp=0x1de5fe241b60 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x1de5fe313bd0?, 0x7ff746bf05df?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe241bb0 sp=0x1de5fe241b88 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x1de5fe380b58?, 0x3e5?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe241bd8 sp=0x1de5fe241bb0 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x1de5fe313ca8?, 0xffffffff?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe241c00 sp=0x1de5fe241bd8 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x7ff746becf28?, 0x7ff746b7ec00?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe241c28 sp=0x1de5fe241c00 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x0?, 0x0?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe241c50 sp=0x1de5fe241c28 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x1de5fe313d30?, 0x7ff746c0cc1c?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe241c78 sp=0x1de5fe241c50 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x0?, 0x180?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe241ca0 sp=0x1de5fe241c78 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x1de5fe313f8c?, 0x0?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe241cc8 sp=0x1de5fe241ca0 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x7ff746d8ef30?, 0x0?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe241cf0 sp=0x1de5fe241cc8 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x1de5fe313f8c?, 0x1de5fe313f88?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe241d18 sp=0x1de5fe241cf0 pc=0x7ff746c5aa5f
+main.growAndCorrupt(0x180?, 0x0?)
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:135 +0x1f fp=0x1de5fe241d40 sp=0x1de5fe241d18 pc=0x7ff746c5aa5f
+main.runTest.func1()
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:118 +0xd9 fp=0x1de5fe241fe0 sp=0x1de5fe241d40 pc=0x7ff746c5a999
+runtime.goexit({})
+        d:/custom-go/go/src/runtime/asm_amd64.s:1737 +0x1 fp=0x1de5fe241fe8 sp=0x1de5fe241fe0 pc=0x7ff746bf0981
+created by main.runTest in goroutine 1
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:105 +0x171
+
+goroutine 1 gp=0x1de5fe27a000 m=nil [chan receive]:
+runtime.gopark(0x25cf6782888?, 0x104000000000070?, 0x28?, 0x8?, 0x25cf6782888?)
+        d:/custom-go/go/src/runtime/proc.go:466 +0xce fp=0x1de5fe2b7d98 sp=0x1de5fe2b7d78 pc=0x7ff746bea4ce
+runtime.chanrecv(0x1de5fe2341c0, 0x0, 0x1)
+        d:/custom-go/go/src/runtime/chan.go:667 +0x4ae fp=0x1de5fe2b7e10 sp=0x1de5fe2b7d98 pc=0x7ff746b8240e
+runtime.chanrecv1(0x7ff746c5b1a9?, 0x0?)
+        d:/custom-go/go/src/runtime/chan.go:509 +0x12 fp=0x1de5fe2b7e38 sp=0x1de5fe2b7e10 pc=0x7ff746b81f52
+main.runTest()
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:128 +0x17d fp=0x1de5fe2b7ec8 sp=0x1de5fe2b7e38pc=0x7ff746c5a87d
+main.main()
+        d:/my-projects/sandbox/crash_this/addrofflags/repro_flags_bug.go:37 +0x95 fp=0x1de5fe2b7f48 sp=0x1de5fe2b7ec8 pc=0x7ff746c5a655
+runtime.main()
+        d:/custom-go/go/src/runtime/proc.go:294 +0x2c7 fp=0x1de5fe2b7fe0 sp=0x1de5fe2b7f48 pc=0x7ff746bb90a7
+runtime.goexit({})
+        d:/custom-go/go/src/runtime/asm_amd64.s:1737 +0x1 fp=0x1de5fe2b7fe8 sp=0x1de5fe2b7fe0 pc=0x7ff746bf0981
+
+goroutine 2 gp=0x1de5fe27a780 m=nil [force gc (idle)]:
+runtime.gopark(0x0?, 0x0?, 0x0?, 0x0?, 0x0?)
+        d:/custom-go/go/src/runtime/proc.go:466 +0xce fp=0x1de5fe281fa8 sp=0x1de5fe281f88 pc=0x7ff746bea4ce
+runtime.goparkunlock(...)
+        d:/custom-go/go/src/runtime/proc.go:472
+runtime.forcegchelper()
+        d:/custom-go/go/src/runtime/proc.go:379 +0xb8 fp=0x1de5fe281fe0 sp=0x1de5fe281fa8 pc=0x7ff746bb9378
+runtime.goexit({})
+        d:/custom-go/go/src/runtime/asm_amd64.s:1737 +0x1 fp=0x1de5fe281fe8 sp=0x1de5fe281fe0 pc=0x7ff746bf0981
+created by runtime.init.7 in goroutine 1
+        d:/custom-go/go/src/runtime/proc.go:367 +0x1a
+
+goroutine 3 gp=0x1de5fe27ab40 m=nil [GC sweep wait]:
+runtime.gopark(0x1?, 0x0?, 0x0?, 0x0?, 0x0?)
+        d:/custom-go/go/src/runtime/proc.go:466 +0xce fp=0x1de5fe283f88 sp=0x1de5fe283f68 pc=0x7ff746bea4ce
+runtime.goparkunlock(...)
+        d:/custom-go/go/src/runtime/proc.go:472
+runtime.bgsweep(0x1de5fe28a000)
+        d:/custom-go/go/src/runtime/mgcsweep.go:324 +0x151 fp=0x1de5fe283fc8 sp=0x1de5fe283f88 pc=0x7ff746ba1e31
+runtime.gcenable.gowrap1()
+        d:/custom-go/go/src/runtime/mgc.go:214 +0x17 fp=0x1de5fe283fe0 sp=0x1de5fe283fc8 pc=0x7ff746b93217
+runtime.goexit({})
+        d:/custom-go/go/src/runtime/asm_amd64.s:1737 +0x1 fp=0x1de5fe283fe8 sp=0x1de5fe283fe0 pc=0x7ff746bf0981
+created by runtime.gcenable in goroutine 1
+        d:/custom-go/go/src/runtime/mgc.go:214 +0x66
+
+goroutine 4 gp=0x1de5fe27ad20 m=nil [runnable]:
+runtime.gopark(0x238818?, 0x3b9aca00?, 0x0?, 0x0?, 0x0?)
+        d:/custom-go/go/src/runtime/proc.go:466 +0xce fp=0x1de5fe291f78 sp=0x1de5fe291f58 pc=0x7ff746bea4ce
+runtime.goparkunlock(...)
+        d:/custom-go/go/src/runtime/proc.go:472
+runtime.(*scavengerState).park(0x7ff746d94be0)
+        d:/custom-go/go/src/runtime/mgcscavenge.go:425 +0x49 fp=0x1de5fe291fa8 sp=0x1de5fe291f78 pc=0x7ff746b9f8a9
+runtime.bgscavenge(0x1de5fe28a000)
+        d:/custom-go/go/src/runtime/mgcscavenge.go:658 +0x59 fp=0x1de5fe291fc8 sp=0x1de5fe291fa8 pc=0x7ff746b9fe39
+runtime.gcenable.gowrap2()
+        d:/custom-go/go/src/runtime/mgc.go:215 +0x17 fp=0x1de5fe291fe0 sp=0x1de5fe291fc8 pc=0x7ff746b931d7
+runtime.goexit({})
+        d:/custom-go/go/src/runtime/asm_amd64.s:1737 +0x1 fp=0x1de5fe291fe8 sp=0x1de5fe291fe0 pc=0x7ff746bf0981
+created by runtime.gcenable in goroutine 1
+        d:/custom-go/go/src/runtime/mgc.go:215 +0xa5
+
+goroutine 5 gp=0x1de5fe27b0e0 m=nil [GOMAXPROCS updater (idle)]:
+runtime.gopark(0x0?, 0x0?, 0x0?, 0x0?, 0x0?)
+        d:/custom-go/go/src/runtime/proc.go:466 +0xce fp=0x1de5fe293f88 sp=0x1de5fe293f68 pc=0x7ff746bea4ce
+runtime.goparkunlock(...)
+        d:/custom-go/go/src/runtime/proc.go:472
+runtime.updateMaxProcsGoroutine()
+        d:/custom-go/go/src/runtime/proc.go:7125 +0xe7 fp=0x1de5fe293fe0 sp=0x1de5fe293f88 pc=0x7ff746bc7307
+runtime.goexit({})
+        d:/custom-go/go/src/runtime/asm_amd64.s:1737 +0x1 fp=0x1de5fe293fe8 sp=0x1de5fe293fe0 pc=0x7ff746bf0981
+created by runtime.defaultGOMAXPROCSUpdateEnable in goroutine 1
+        d:/custom-go/go/src/runtime/proc.go:7113 +0x37
+
+goroutine 6 gp=0x1de5fe27b2c0 m=nil [finalizer wait]:
+runtime.gopark(0x0?, 0x7ff746d861c8?, 0x70?, 0x40?, 0x1000000010?)
+        d:/custom-go/go/src/runtime/proc.go:466 +0xce fp=0x1de5fe28de20 sp=0x1de5fe28de00 pc=0x7ff746bea4ce
+runtime.runFinalizers()
+        d:/custom-go/go/src/runtime/mfinal.go:210 +0x107 fp=0x1de5fe28dfe0 sp=0x1de5fe28de20 pc=0x7ff746b921a7
+runtime.goexit({})
+        d:/custom-go/go/src/runtime/asm_amd64.s:1737 +0x1 fp=0x1de5fe28dfe8 sp=0x1de5fe28dfe0 pc=0x7ff746bf0981
+created by runtime.createfing in goroutine 1
+        d:/custom-go/go/src/runtime/mfinal.go:172 +0x3d
+
+goroutine 7 gp=0x1de5fe27b4a0 m=nil [cleanup wait]:
+runtime.gopark(0x0?, 0x0?, 0x0?, 0x0?, 0x0?)
+        d:/custom-go/go/src/runtime/proc.go:466 +0xce fp=0x1de5fe28ff68 sp=0x1de5fe28ff48 pc=0x7ff746bea4ce
+runtime.goparkunlock(...)
+        d:/custom-go/go/src/runtime/proc.go:472
+runtime.(*cleanupQueue).dequeue(0x7ff746d94d20)
+        d:/custom-go/go/src/runtime/mcleanup.go:522 +0xd4 fp=0x1de5fe28ffa0 sp=0x1de5fe28ff68 pc=0x7ff746b8eff4
+runtime.runCleanups()
+        d:/custom-go/go/src/runtime/mcleanup.go:718 +0x45 fp=0x1de5fe28ffe0 sp=0x1de5fe28ffa0 pc=0x7ff746b8f665
+runtime.goexit({})
+        d:/custom-go/go/src/runtime/asm_amd64.s:1737 +0x1 fp=0x1de5fe28ffe8 sp=0x1de5fe28ffe0 pc=0x7ff746bf0981
+created by runtime.(*cleanupQueue).createGs in goroutine 1
+        d:/custom-go/go/src/runtime/mcleanup.go:672 +0xa5
+
+goroutine 9 gp=0x1de5fe27b860 m=nil [GC worker (idle)]:
+runtime.gopark(0x0?, 0x0?, 0x0?, 0x0?, 0x0?)
+        d:/custom-go/go/src/runtime/proc.go:466 +0xce fp=0x1de5fe285f40 sp=0x1de5fe285f20 pc=0x7ff746bea4ce
+runtime.gcBgMarkWorker(0x1de5fe2341c0)
+        d:/custom-go/go/src/runtime/mgc.go:1773 +0xeb fp=0x1de5fe285fc8 sp=0x1de5fe285f40 pc=0x7ff746b95d0b
+runtime.gcBgMarkStartWorkers.gowrap1()
+        d:/custom-go/go/src/runtime/mgc.go:1677 +0x17 fp=0x1de5fe285fe0 sp=0x1de5fe285fc8 pc=0x7ff746b95bf7
+runtime.goexit({})
+        d:/custom-go/go/src/runtime/asm_amd64.s:1737 +0x1 fp=0x1de5fe285fe8 sp=0x1de5fe285fe0 pc=0x7ff746bf0981
+created by runtime.gcBgMarkStartWorkers in goroutine 8
+        d:/custom-go/go/src/runtime/mgc.go:1677 +0x105
+
+goroutine 10 gp=0x1de5fe27ba40 m=nil [GC worker (idle)]:
+runtime.gopark(0x0?, 0x0?, 0x0?, 0x0?, 0x0?)
+        d:/custom-go/go/src/runtime/proc.go:466 +0xce fp=0x1de5fe2c1f40 sp=0x1de5fe2c1f20 pc=0x7ff746bea4ce
+runtime.gcBgMarkWorker(0x1de5fe2341c0)
+        d:/custom-go/go/src/runtime/mgc.go:1773 +0xeb fp=0x1de5fe2c1fc8 sp=0x1de5fe2c1f40 pc=0x7ff746b95d0b
+runtime.gcBgMarkStartWorkers.gowrap1()
+        d:/custom-go/go/src/runtime/mgc.go:1677 +0x17 fp=0x1de5fe2c1fe0 sp=0x1de5fe2c1fc8 pc=0x7ff746b95bf7
+runtime.goexit({})
+        d:/custom-go/go/src/runtime/asm_amd64.s:1737 +0x1 fp=0x1de5fe2c1fe8 sp=0x1de5fe2c1fe0 pc=0x7ff746bf0981
+created by runtime.gcBgMarkStartWorkers in goroutine 8
+        d:/custom-go/go/src/runtime/mgc.go:1677 +0x105
+
+goroutine 11 gp=0x1de5fe27bc20 m=nil [GC worker (idle)]:
+runtime.gopark(0x0?, 0x0?, 0x0?, 0x0?, 0x0?)
+        d:/custom-go/go/src/runtime/proc.go:466 +0xce fp=0x1de5fe2c3f40 sp=0x1de5fe2c3f20 pc=0x7ff746bea4ce
+runtime.gcBgMarkWorker(0x1de5fe2341c0)
+        d:/custom-go/go/src/runtime/mgc.go:1773 +0xeb fp=0x1de5fe2c3fc8 sp=0x1de5fe2c3f40 pc=0x7ff746b95d0b
+runtime.gcBgMarkStartWorkers.gowrap1()
+        d:/custom-go/go/src/runtime/mgc.go:1677 +0x17 fp=0x1de5fe2c3fe0 sp=0x1de5fe2c3fc8 pc=0x7ff746b95bf7
+runtime.goexit({})
+        d:/custom-go/go/src/runtime/asm_amd64.s:1737 +0x1 fp=0x1de5fe2c3fe8 sp=0x1de5fe2c3fe0 pc=0x7ff746bf0981
+created by runtime.gcBgMarkStartWorkers in goroutine 8
+        d:/custom-go/go/src/runtime/mgc.go:1677 +0x105
+
+goroutine 12 gp=0x1de5fe2c4000 m=nil [GC worker (idle)]:
+runtime.gopark(0x0?, 0x0?, 0x0?, 0x0?, 0x0?)
+        d:/custom-go/go/src/runtime/proc.go:466 +0xce fp=0x1de5fe2bdf40 sp=0x1de5fe2bdf20 pc=0x7ff746bea4ce
+runtime.gcBgMarkWorker(0x1de5fe2341c0)
+        d:/custom-go/go/src/runtime/mgc.go:1773 +0xeb fp=0x1de5fe2bdfc8 sp=0x1de5fe2bdf40 pc=0x7ff746b95d0b
+runtime.gcBgMarkStartWorkers.gowrap1()
+        d:/custom-go/go/src/runtime/mgc.go:1677 +0x17 fp=0x1de5fe2bdfe0 sp=0x1de5fe2bdfc8 pc=0x7ff746b95bf7
+runtime.goexit({})
+        d:/custom-go/go/src/runtime/asm_amd64.s:1737 +0x1 fp=0x1de5fe2bdfe8 sp=0x1de5fe2bdfe0 pc=0x7ff746bf0981
+created by runtime.gcBgMarkStartWorkers in goroutine 8
+        d:/custom-go/go/src/runtime/mgc.go:1677 +0x105
+
+goroutine 13 gp=0x1de5fe2c41e0 m=nil [GC worker (idle)]:
+runtime.gopark(0x0?, 0x0?, 0x0?, 0x0?, 0x0?)
+        d:/custom-go/go/src/runtime/proc.go:466 +0xce fp=0x1de5fe2bff40 sp=0x1de5fe2bff20 pc=0x7ff746bea4ce
+runtime.gcBgMarkWorker(0x1de5fe2341c0)
+        d:/custom-go/go/src/runtime/mgc.go:1773 +0xeb fp=0x1de5fe2bffc8 sp=0x1de5fe2bff40 pc=0x7ff746b95d0b
+runtime.gcBgMarkStartWorkers.gowrap1()
+        d:/custom-go/go/src/runtime/mgc.go:1677 +0x17 fp=0x1de5fe2bffe0 sp=0x1de5fe2bffc8 pc=0x7ff746b95bf7
+runtime.goexit({})
+        d:/custom-go/go/src/runtime/asm_amd64.s:1737 +0x1 fp=0x1de5fe2bffe8 sp=0x1de5fe2bffe0 pc=0x7ff746bf0981
+created by runtime.gcBgMarkStartWorkers in goroutine 8
+        d:/custom-go/go/src/runtime/mgc.go:1677 +0x105
+
+goroutine 14 gp=0x1de5fe2c43c0 m=nil [GC worker (idle)]:
+runtime.gopark(0x96af4ce4790?, 0x3?, 0x0?, 0x0?, 0x0?)
+        d:/custom-go/go/src/runtime/proc.go:466 +0xce fp=0x1de5fe2cbf40 sp=0x1de5fe2cbf20 pc=0x7ff746bea4ce
+runtime.gcBgMarkWorker(0x1de5fe2341c0)
+        d:/custom-go/go/src/runtime/mgc.go:1773 +0xeb fp=0x1de5fe2cbfc8 sp=0x1de5fe2cbf40 pc=0x7ff746b95d0b
+runtime.gcBgMarkStartWorkers.gowrap1()
+        d:/custom-go/go/src/runtime/mgc.go:1677 +0x17 fp=0x1de5fe2cbfe0 sp=0x1de5fe2cbfc8 pc=0x7ff746b95bf7
+runtime.goexit({})
+        d:/custom-go/go/src/runtime/asm_amd64.s:1737 +0x1 fp=0x1de5fe2cbfe8 sp=0x1de5fe2cbfe0 pc=0x7ff746bf0981
+created by runtime.gcBgMarkStartWorkers in goroutine 8
+        d:/custom-go/go/src/runtime/mgc.go:1677 +0x105
+
+goroutine 15 gp=0x1de5fe2c45a0 m=nil [GC worker (idle)]:
+runtime.gopark(0x96af4ce4790?, 0x1?, 0x40?, 0xb7?, 0x0?)
+        d:/custom-go/go/src/runtime/proc.go:466 +0xce fp=0x1de5fe2cdf40 sp=0x1de5fe2cdf20 pc=0x7ff746bea4ce
+runtime.gcBgMarkWorker(0x1de5fe2341c0)
+        d:/custom-go/go/src/runtime/mgc.go:1773 +0xeb fp=0x1de5fe2cdfc8 sp=0x1de5fe2cdf40 pc=0x7ff746b95d0b
+runtime.gcBgMarkStartWorkers.gowrap1()
+        d:/custom-go/go/src/runtime/mgc.go:1677 +0x17 fp=0x1de5fe2cdfe0 sp=0x1de5fe2cdfc8 pc=0x7ff746b95bf7
+runtime.goexit({})
+        d:/custom-go/go/src/runtime/asm_amd64.s:1737 +0x1 fp=0x1de5fe2cdfe8 sp=0x1de5fe2cdfe0 pc=0x7ff746bf0981
+created by runtime.gcBgMarkStartWorkers in goroutine 8
+        d:/custom-go/go/src/runtime/mgc.go:1677 +0x105
+
+goroutine 16 gp=0x1de5fe2c4780 m=nil [GC worker (idle)]:
+runtime.gopark(0x96af4ce4790?, 0x1?, 0x0?, 0x0?, 0x0?)
+        d:/custom-go/go/src/runtime/proc.go:466 +0xce fp=0x1de5fe2c7f40 sp=0x1de5fe2c7f20 pc=0x7ff746bea4ce
+runtime.gcBgMarkWorker(0x1de5fe2341c0)
+        d:/custom-go/go/src/runtime/mgc.go:1773 +0xeb fp=0x1de5fe2c7fc8 sp=0x1de5fe2c7f40 pc=0x7ff746b95d0b
+runtime.gcBgMarkStartWorkers.gowrap1()
+        d:/custom-go/go/src/runtime/mgc.go:1677 +0x17 fp=0x1de5fe2c7fe0 sp=0x1de5fe2c7fc8 pc=0x7ff746b95bf7
+runtime.goexit({})
+        d:/custom-go/go/src/runtime/asm_amd64.s:1737 +0x1 fp=0x1de5fe2c7fe8 sp=0x1de5fe2c7fe0 pc=0x7ff746bf0981
+created by runtime.gcBgMarkStartWorkers in goroutine 8
+        d:/custom-go/go/src/runtime/mgc.go:1677 +0x105
+
+goroutine 18 gp=0x1de5fe2c4960 m=nil [GC worker (idle)]:
+runtime.gopark(0x96af46f3f70?, 0x0?, 0x0?, 0x0?, 0x0?)
+        d:/custom-go/go/src/runtime/proc.go:466 +0xce fp=0x1de5fe2c9f40 sp=0x1de5fe2c9f20 pc=0x7ff746bea4ce
+runtime.gcBgMarkWorker(0x1de5fe2341c0)
+        d:/custom-go/go/src/runtime/mgc.go:1773 +0xeb fp=0x1de5fe2c9fc8 sp=0x1de5fe2c9f40 pc=0x7ff746b95d0b
+runtime.gcBgMarkStartWorkers.gowrap1()
+        d:/custom-go/go/src/runtime/mgc.go:1677 +0x17 fp=0x1de5fe2c9fe0 sp=0x1de5fe2c9fc8 pc=0x7ff746b95bf7
+runtime.goexit({})
+        d:/custom-go/go/src/runtime/asm_amd64.s:1737 +0x1 fp=0x1de5fe2c9fe8 sp=0x1de5fe2c9fe0 pc=0x7ff746bf0981
+created by runtime.gcBgMarkStartWorkers in goroutine 8
+        d:/custom-go/go/src/runtime/mgc.go:1677 +0x105
+
+goroutine 19 gp=0x1de5fe2c4b40 m=nil [GC worker (idle)]:
+runtime.gopark(0x96af4ce4790?, 0x1?, 0x0?, 0x0?, 0x0?)
+        d:/custom-go/go/src/runtime/proc.go:466 +0xce fp=0x1de5fe2d3f40 sp=0x1de5fe2d3f20 pc=0x7ff746bea4ce
+runtime.gcBgMarkWorker(0x1de5fe2341c0)
+        d:/custom-go/go/src/runtime/mgc.go:1773 +0xeb fp=0x1de5fe2d3fc8 sp=0x1de5fe2d3f40 pc=0x7ff746b95d0b
+runtime.gcBgMarkStartWorkers.gowrap1()
+        d:/custom-go/go/src/runtime/mgc.go:1677 +0x17 fp=0x1de5fe2d3fe0 sp=0x1de5fe2d3fc8 pc=0x7ff746b95bf7
+runtime.goexit({})
+        d:/custom-go/go/src/runtime/asm_amd64.s:1737 +0x1 fp=0x1de5fe2d3fe8 sp=0x1de5fe2d3fe0 pc=0x7ff746bf0981
+created by runtime.gcBgMarkStartWorkers in goroutine 8
+        d:/custom-go/go/src/runtime/mgc.go:1677 +0x105
+
+goroutine 20 gp=0x1de5fe2c4d20 m=nil [GC worker (idle)]:
+runtime.gopark(0x96af4ce4790?, 0x3?, 0x0?, 0x0?, 0x0?)
+        d:/custom-go/go/src/runtime/proc.go:466 +0xce fp=0x1de5fe2d5f40 sp=0x1de5fe2d5f20 pc=0x7ff746bea4ce
+runtime.gcBgMarkWorker(0x1de5fe2341c0)
+        d:/custom-go/go/src/runtime/mgc.go:1773 +0xeb fp=0x1de5fe2d5fc8 sp=0x1de5fe2d5f40 pc=0x7ff746b95d0b
+runtime.gcBgMarkStartWorkers.gowrap1()
+        d:/custom-go/go/src/runtime/mgc.go:1677 +0x17 fp=0x1de5fe2d5fe0 sp=0x1de5fe2d5fc8 pc=0x7ff746b95bf7
+runtime.goexit({})
+        d:/custom-go/go/src/runtime/asm_amd64.s:1737 +0x1 fp=0x1de5fe2d5fe8 sp=0x1de5fe2d5fe0 pc=0x7ff746bf0981
+created by runtime.gcBgMarkStartWorkers in goroutine 8
+        d:/custom-go/go/src/runtime/mgc.go:1677 +0x105
+
+goroutine 21 gp=0x1de5fe2c4f00 m=nil [GC worker (idle)]:
+runtime.gopark(0x96af4ce4790?, 0x3?, 0x0?, 0x0?, 0x0?)
+        d:/custom-go/go/src/runtime/proc.go:466 +0xce fp=0x1de5fe2cff40 sp=0x1de5fe2cff20 pc=0x7ff746bea4ce
+runtime.gcBgMarkWorker(0x1de5fe2341c0)
+        d:/custom-go/go/src/runtime/mgc.go:1773 +0xeb fp=0x1de5fe2cffc8 sp=0x1de5fe2cff40 pc=0x7ff746b95d0b
+runtime.gcBgMarkStartWorkers.gowrap1()
+        d:/custom-go/go/src/runtime/mgc.go:1677 +0x17 fp=0x1de5fe2cffe0 sp=0x1de5fe2cffc8 pc=0x7ff746b95bf7
+runtime.goexit({})
+        d:/custom-go/go/src/runtime/asm_amd64.s:1737 +0x1 fp=0x1de5fe2cffe8 sp=0x1de5fe2cffe0 pc=0x7ff746bf0981
+created by runtime.gcBgMarkStartWorkers in goroutine 8
+        d:/custom-go/go/src/runtime/mgc.go:1677 +0x105
+exit status 2
+
+d:\my-projects\sandbox\crash_this\addrofflags>pause
+Press any key to continue . . .

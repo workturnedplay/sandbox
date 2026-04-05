@@ -1,0 +1,2 @@
+both gemini and claude opus 4.6 failed to make this work/panic, stuck at:
+WSARecvFrom failed: The attempted operation is not supported for the type of object referenced.
