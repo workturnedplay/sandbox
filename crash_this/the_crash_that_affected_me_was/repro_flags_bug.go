@@ -1,4 +1,6 @@
 // https://github.com/golang/go/issues/77975
+// fixed in Go commit 1a44be4cecdc742ac6cce9825f9ffc19857c99f3 which is in Go v1.26.2
+//addon fix in Go commit 6ab37c1ca59664375786fb2f3c122eb3db98e433 which isn't yet released (i used it tho in my Go 1.27 devel master branch wtw)
 package main
 
 import (
