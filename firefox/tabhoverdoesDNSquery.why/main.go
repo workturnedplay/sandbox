@@ -1,3 +1,4 @@
+// it's because of network.dns.echconfig.enabled is true in about:config it only does DNS type HTTPS request not actually connect to the host!
 package main
 
 import (
