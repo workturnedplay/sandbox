@@ -1,0 +1,1 @@
+awk 'BEGIN { for (i = 1; i <= 900000; i++) printf "line %07d\n", i }' > loadmeinfirefox.txt

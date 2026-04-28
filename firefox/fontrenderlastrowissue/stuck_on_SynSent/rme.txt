@@ -1,0 +1,3 @@
+this probably works but firefox was temporarily not loading anything(any other site, found out later), that's why it was stuck on SynSent for this! and was using 1 full core 8-10% cpu usage (out of 12 cores which would be 100%)
+
+also now that firefox does work, portmaster listed main.exe as needing attention, so after allowing it, it works!
