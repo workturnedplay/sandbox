@@ -18,19 +18,16 @@
 package main
 
 import (
-	//"bytes"
-	//"encoding/json"
+	"errors"
 	"fmt"
+	"github.com/workturnedplay/wincoe"
+	"golang.org/x/sys/windows"
 	"os"
 	"os/exec"
 	"runtime"
 	"strings"
 	"sync"
 	"time"
-	//hook "github.com/robotn/gohook"
-	"errors"
-	"github.com/workturnedplay/wincoe"
-	"golang.org/x/sys/windows"
 	"unsafe"
 )
 
@@ -797,7 +794,7 @@ func hookWorker() {
 	// Install the keyboard hook
 	h, _, err := procSetWindowsHookEx.Call(
 		WH_KEYBOARD_LL,
-		uintptr(kbdProc),
+		kbdProc,
 		0, 0,
 	)
 	if h == 0 {
@@ -873,8 +870,9 @@ const (
 	LLMHF_INJECTED = 0x00000001
 )
 
-func keyboardProc(nCode int, wParam uintptr, lParam uintptr) uintptr {
-	kbd := (*KBDLLHOOKSTRUCT)(unsafe.Pointer(lParam))
+func keyboardProc(nCode int, wParam uintptr, lParam unsafe.Pointer) uintptr {
+	//kbd := (*KBDLLHOOKSTRUCT)(unsafe.Pointer(lParam))
+	kbd := (*KBDLLHOOKSTRUCT)(lParam)
 	logf("LL hook saw VK=0x%04X flags=0x%X wParam=0x%X, nCode=%d, injected:%d", kbd.VkCode, kbd.Flags, wParam, nCode, kbd.Flags&LLKHF_INJECTED)
 	if nCode < 0 {
 		//If nCode is less than zero, the hook procedure must pass the message to CallNextHookEx without further processing.
@@ -884,7 +882,7 @@ func keyboardProc(nCode int, wParam uintptr, lParam uintptr) uintptr {
 	}
 
 	if nCode == 0 {
-		kbd := (*KBDLLHOOKSTRUCT)(unsafe.Pointer(lParam))
+		//kbd := (*KBDLLHOOKSTRUCT)(unsafe.Pointer(lParam))
 		// no: Optional but recommended: ignore injected (synthetic) keys so we don't react to our own SendInput etc.
 		//Many modern multimedia keyboards (Razer included, but also Logitech, Corsair, SteelSeries, etc.) internally generate media-key events using
 		// the exact same injection mechanism that user-mode apps use. The firmware/microcontroller sends them to Windows as if they were synthetic
@@ -962,7 +960,7 @@ func keyboardProc(nCode int, wParam uintptr, lParam uintptr) uintptr {
 	}
 
 next:
-	ret, _, _ := procCallNextHookEx.Call(0, uintptr(nCode), wParam, lParam)
+	ret, _, _ := procCallNextHookEx.Call(0, uintptr(nCode), wParam, uintptr(lParam))
 	return ret
 }
 
@@ -1142,7 +1140,7 @@ func propertyChangeReset(instanceID string) error {
 		DIGCF_ALLCLASSES|DIGCF_PRESENT,
 	)
 	if h == 0 {
-		return fmt.Errorf("SetupDiGetClassDevs failed, ret=%d, err=%v", h, err)
+		return fmt.Errorf("SetupDiGetClassDevs failed, ret=%d, err=%w", h, err)
 	}
 	defer procSetupDiDestroyDeviceInfoList.Call(h)
 
@@ -1184,10 +1182,10 @@ func doPropertyChange(h uintptr, devInfo *SP_DEVINFO_DATA) error {
 		h,
 		uintptr(unsafe.Pointer(devInfo)),
 		uintptr(unsafe.Pointer(&pcp.ClassInstallHeader)),
-		uintptr(unsafe.Sizeof(pcp)),
+		unsafe.Sizeof(pcp),
 	)
 	if r1 == 0 {
-		return fmt.Errorf("SetupDiSetClassInstallParams failed: %v", err)
+		return fmt.Errorf("SetupDiSetClassInstallParams failed: %w", err)
 	}
 
 	// Call the class installer to perform the reset

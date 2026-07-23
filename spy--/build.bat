@@ -13,7 +13,7 @@ echo Running go vet...
 :: Including dead branches
 :: Including code not exercised by tests
 ::go vet -mod=vendor ./...
-go vet -mod=vendor -unsafeptr=false
+go vet -mod=vendor -unsafeptr=true
 if errorlevel 1 goto :fail
 
 go build -mod=vendor
