@@ -1,4 +1,5 @@
 todo:
+* see if glitch is still detected if auto-repeat key rate is lowest possible! because I see if I hold a media key now the glitch is detected due to rapid repeat rate!
 
 * after glitch/resetting, reset the time to wait for glitch as well, because glitch can sometimes happen twice, or maybe more times, so we need to reset as many times as needed, not run out of time and exit!
 * should probably run full time, have systray icon like winbollocks(with toggleables)

@@ -1088,6 +1088,7 @@ var (
 	Advapi32 = windows.NewLazySystemDLL("advapi32.dll")
 	Ntdll    = windows.NewLazySystemDLL("ntdll.dll")
 	Wtsapi32 = windows.NewLazySystemDLL("wtsapi32.dll")
+	Setupapi = windows.NewLazySystemDLL("setupapi.dll")
 
 	procGetExtendedUdpTable = NewBoundProc6(Iphlpapi, "GetExtendedUdpTable", CheckErrno)
 	procGetExtendedTcpTable = NewBoundProc6(Iphlpapi, "GetExtendedTcpTable", CheckErrno)
@@ -1235,6 +1236,9 @@ var (
 	// procLoadIcon  = user32.NewProc("LoadIconW")
 	procLoadIcon = NewBoundProc2(User32, "LoadIconW", CheckNull)
 
+	// procLoadImage = user32.NewProc("LoadImageW")
+	procLoadImageW = NewBoundProc6(User32, "LoadImageW", CheckNull)
+
 	// procUnregisterClassW = user32.NewProc("UnregisterClassW")
 	procUnregisterClassW = NewBoundProc2(User32, "UnregisterClassW", CheckBool)
 
@@ -1357,6 +1361,22 @@ var (
 	// (visible or not), not a failure indicator -- also CheckNone.
 	procIsWindowVisible = NewBoundProc1(User32, "IsWindowVisible", CheckNone)
 	procIsWindow        = NewBoundProc1(User32, "IsWindow", CheckNone)
+
+	// Iphlpapi routing procs
+	procGetBestInterface     = NewBoundProc2(Iphlpapi, "GetBestInterface", CheckErrno)
+	procGetIPForwardTable    = NewBoundProc3(Iphlpapi, "GetIpForwardTable", CheckErrno)
+	procCreateIPForwardEntry = NewBoundProc1(Iphlpapi, "CreateIpForwardEntry", CheckErrno)
+	procDeleteIPForwardEntry = NewBoundProc1(Iphlpapi, "DeleteIpForwardEntry", CheckErrno)
+	procGetIfTable           = NewBoundProc3(Iphlpapi, "GetIfTable", CheckErrno)
+	procGetIPAddrTable       = NewBoundProc3(Iphlpapi, "GetIpAddrTable", CheckErrno)
+
+	procSetupDiGetClassDevs              = NewBoundProc4(Setupapi, "SetupDiGetClassDevsW", CheckHandle)
+	procSetupDiEnumDeviceInfo            = NewBoundProc3(Setupapi, "SetupDiEnumDeviceInfo", CheckBool)
+	procSetupDiDestroyDeviceInfoList     = NewBoundProc1(Setupapi, "SetupDiDestroyDeviceInfoList", CheckBool)
+	procSetupDiGetDeviceInstanceId       = NewBoundProc5(Setupapi, "SetupDiGetDeviceInstanceIdW", CheckBool)
+	procSetupDiGetDeviceRegistryProperty = NewBoundProc7(Setupapi, "SetupDiGetDeviceRegistryPropertyW", CheckBool)
+	procSetupDiSetClassInstallParams     = NewBoundProc4(Setupapi, "SetupDiSetClassInstallParamsW", CheckBool)
+	procSetupDiCallClassInstaller        = NewBoundProc3(Setupapi, "SetupDiCallClassInstaller", CheckBool)
 )
 
 // auto runs before main(), loads the DLLs non-lazily.
@@ -3267,6 +3287,16 @@ func SetLastError() {
 	panic2("BUG: don't use SetLastError because it's ran and set to 0 before each syscall and GetLastError() is what 3rd arg of LazyProc.Call(..) returns or if using wrapper it's in WinResult.CallStatus!")
 }
 
+const (
+	CTRL_C_EVENT     = windows.CTRL_C_EVENT     //0
+	CTRL_BREAK_EVENT = windows.CTRL_BREAK_EVENT //1
+	//clicked the close button on top right:
+	CTRL_CLOSE_EVENT = windows.CTRL_CLOSE_EVENT //2
+	//if win11 wants to restart/shutdown:
+	CTRL_LOGOFF_EVENT   = windows.CTRL_LOGOFF_EVENT   //5
+	CTRL_SHUTDOWN_EVENT = windows.CTRL_SHUTDOWN_EVENT //6
+)
+
 // ConsoleCtrlHandler is the required signature for Windows console control handlers.
 // Return 1 (TRUE) if the event was handled, or 0 (FALSE) to pass it to the next handler.
 type ConsoleCtrlHandler func(ctrlType uint32) uintptr
@@ -4586,48 +4616,63 @@ func AttachThreadInput(idAttach, idAttachTo uint32, fAttach bool) WinResult {
 	)
 }
 
-// MAKEINTRESOURCE converts an integer resource ID into a *uint16
-// suitable for Win32 functions like LoadIcon, LoadImage, etc.
-//
-// Converting 32512 to unsafe.Pointer does not confuse the Go Garbage Collector because values
-// under 65,536 reside in the OS-reserved unmapped lower memory space, so GC ignores them
-func MAKEINTRESOURCE(id uint16) *uint16 {
-	//return (*uint16)(unsafe.Pointer(uintptr(id))) //nolint:govet // #nosec G103 // this still has warning!
-
-	/*
-		How it works:unsafe.Pointer(nil) creates a zero-valued pointer ($0$).unsafe.Add(..., id)
-		adds $0 + \text{id} = \text{id}$.(*uint16)(...) casts the result to *uint16.go vet sees
-		valid standard pointer arithmetic and stays quiet.
-	*/
-	return (*uint16)(unsafe.Add(unsafe.Pointer(nil), id))
-}
-
 const IDI_APPLICATION = 32512
 
-var IDI_APPLICATION_RESOURCE = MAKEINTRESOURCE(IDI_APPLICATION)
-
-// LoadIcon loads the specified icon resource.
+// LoadIcon is a low-level wrapper around User32 LoadIconW that accepts a pre-allocated
+// null-terminated UTF-16 string pointer (*uint16).
 //
-// --- Usage Examples ---
+// WARNING: lpIconName MUST be a valid memory pointer to a UTF-16 string (e.g., created via
+// windows.UTF16PtrFromString). Do NOT pass integer resource IDs cast to pointers here, as doing so
+// will trigger runtime panics under Go's '-d=checkptr' validation. For numeric IDs, use LoadIconByID.
 //
-// 1. Loading a System Icon by ID:
-// hIcon1 := LoadIcon(0, MAKEINTRESOURCE(IDI_APPLICATION))
+// Parameters:
+//   - hInstance: Handle to the module whose executable file contains the icon resource.
+//   - lpIconName: Pointer to a null-terminated UTF-16 string specifying the resource name.
 //
-// 2.
-// hIcon1 := LoadIcon(0, IDI_APPLICATION_RESOURCE)
+// Return values:
+//   - windows.Handle: Handle to the loaded icon (HICON).
+//   - WinResult: Call status and error details if the call fails.
 //
-// 3. Loading a Custom Icon by String Name:
-// iconNamePtr, _ := windows.UTF16PtrFromString("MY_ICON_RESOURCE")
-// hIcon2 := LoadIcon(hInstance, iconNamePtr)
-func LoadIcon(hInstance windows.Handle, lpIconName *uint16) WinResult {
+// "LoadIconW defaults to loading the standard icon size (SM_CXICON / SM_CYICON, which is usually 32x32). However, the system tray uses the small icon size (SM_CXSMICON / SM_CYSMICON, usually 16x16)." - Gemini 3.1 Pro
+// so use LoadImage instead. "LoadImageW fixes this by letting you explicitly ask for the 16x16 size, which makes Windows pull the correct sub-image directly from your multi-resolution resource."
+func LoadIcon(hInstance windows.Handle, lpIconName *uint16) (windows.Handle, WinResult) {
 	res := procLoadIcon.Call(
 		uintptr(hInstance),
 		uintptr(unsafe.Pointer(lpIconName)),
 	)
-	return res //windows.Handle(res.R1)
+	return windows.Handle(res.R1), res
 }
 
-// LoadIconByID loads an icon using an integer resource ID (e.g., IDI_APPLICATION).
+// LoadIconByName loads an icon resource using a standard Go UTF-8 string name.
+//
+// It automatically converts the string into a null-terminated UTF-16 pointer and invokes LoadIcon.
+//
+// Parameters:
+//   - hInstance: Handle to the module whose executable file contains the icon resource.
+//   - name: The named identifier of the icon resource in the PE executable resource table.
+//
+// Return values:
+//   - windows.Handle: Handle to the loaded icon (HICON).
+//   - WinResult: Call status and error details if string conversion or Win32 loading fails.
+func LoadIconByName(hInstance windows.Handle, name string) (windows.Handle, WinResult) {
+	namePtr, err := windows.UTF16PtrFromString(name)
+	if err != nil {
+		return 0, WinResult{Err: err}
+	}
+	return LoadIcon(hInstance, namePtr)
+}
+
+// LoadIconByID loads an icon resource specified by a numeric integer ID.
+//
+// Parameters:
+//   - hInstance: Handle to the module whose executable file contains the icon resource.
+//     Pass 0 (NULL) to load standard built-in Windows system icons (e.g., wincoe.IDI_APPLICATION).
+//     Pass your application's module handle (selfHInstance) to load custom embedded resources.
+//   - resourceID: The 16-bit numeric identifier of the icon resource (e.g., 1 or IDI_APPLICATION).
+//
+// Return values:
+//   - windows.Handle: Handle to the loaded icon (HICON).
+//   - WinResult: Call status and error details if the call fails.
 func LoadIconByID(hInstance windows.Handle, resourceID uint16) (windows.Handle, WinResult) {
 	res := procLoadIcon.Call(
 		uintptr(hInstance),
@@ -4636,18 +4681,56 @@ func LoadIconByID(hInstance windows.Handle, resourceID uint16) (windows.Handle, 
 	return windows.Handle(res.R1), res
 }
 
-// // LoadIconByName loads an icon using a string resource name.
-// func LoadIconByName(hInstance windows.Handle, name string) (windows.Handle, error) {
-// 	namePtr, err := windows.UTF16PtrFromString(name)
-// 	if err != nil {
-// 		return 0, err
-// 	}
-// 	res := procLoadIcon.Call(
-// 		uintptr(hInstance),
-// 		uintptr(unsafe.Pointer(namePtr)),
-// 	)
-// 	return windows.Handle(res.R1), nil
-// }
+const (
+	IMAGE_BITMAP = 0
+	IMAGE_ICON   = 1
+	IMAGE_CURSOR = 2
+
+	LR_DEFAULTCOLOR     = 0x00000000
+	LR_MONOCHROME       = 0x00000001
+	LR_COLOR            = 0x00000002
+	LR_COPYRETURNORG    = 0x00000004
+	LR_COPYDELETEORG    = 0x00000008
+	LR_LOADFROMFILE     = 0x00000010
+	LR_LOADTRANSPARENT  = 0x00000020
+	LR_DEFAULTSIZE      = 0x00000040
+	LR_VGACOLOR         = 0x00000080
+	LR_LOADMAP3DCOLORS  = 0x00001000
+	LR_CREATEDIBSECTION = 0x00002000
+	LR_COPYFROMRESOURCE = 0x00004000
+	LR_SHARED           = 0x00008000
+
+	SM_CXICON   = 11
+	SM_CYICON   = 12
+	SM_CXSMICON = 49
+	SM_CYSMICON = 50
+)
+
+// LoadImageByID loads an image (icon, cursor, or bitmap) using a numeric integer ID.
+//
+// Parameters:
+//   - hInstance: Handle to the module whose executable file contains the resource.
+//   - resourceID: The 16-bit numeric identifier of the resource.
+//   - uType: The type of image to be loaded (e.g., wincoe.IMAGE_ICON).
+//   - cx, cy: The desired width and height in pixels.
+//   - fuLoad: Load flags (e.g., wincoe.LR_SHARED).
+//
+// Return values:
+//   - windows.Handle: Handle to the loaded image.
+//   - WinResult: Call status and error details if the call fails.
+func LoadImageByID(hInstance windows.Handle, resourceID uint16, uType uint32, cx, cy int32, fuLoad uint32) (windows.Handle, WinResult) {
+	res := procLoadImageW.Call(
+		uintptr(hInstance),
+		uintptr(resourceID),
+		uintptr(uType),
+		// #nosec G115 -- safe: Win32 dimensions are sign-extended from int32 into uintptr
+		uintptr(cx),
+		// #nosec G115 -- safe: Win32 dimensions are sign-extended from int32 into uintptr
+		uintptr(cy),
+		uintptr(fuLoad),
+	)
+	return windows.Handle(res.R1), res
+}
 
 // UnregisterClassW unregisters a window class.
 func UnregisterClassW(lpClassName *uint16, hInstance windows.Handle) WinResult {
@@ -5149,4 +5232,367 @@ func WTSRegisterSessionNotification(hwnd windows.Handle, dwFlags uint32) WinResu
 // WTSUnRegisterSessionNotification unregisters the specified window from receiving session change notifications.
 func WTSUnRegisterSessionNotification(hwnd windows.Handle) WinResult {
 	return procWTSUnRegisterSessionNotification.Call(uintptr(hwnd))
+}
+
+const (
+	WM_MOUSEMOVE   = 0x0200
+	WM_LBUTTONDOWN = 0x0201
+	WM_LBUTTONUP   = 0x0202
+	WM_RBUTTONDOWN = 0x0204 //guessed
+	WM_RBUTTONUP   = 0x0205 // even winxp would have this
+	WM_CONTEXTMENU = 0x007B // winxp won't have this tho
+
+	WM_NCLBUTTONDOWN = 0x00A1
+
+	HTCAPTION = 2
+)
+
+const (
+	WM_KEYDOWN    = 0x0100
+	WM_KEYUP      = 0x0101
+	WM_SYSKEYDOWN = 0x0104
+	WM_SYSKEYUP   = 0x0105
+)
+
+/*
+WM_DESTROY Breakdown
+
+	Constant Value: 0x0002
+
+	What triggers it: It is sent by the system to a window after the window has been removed from the screen, but before the child windows are destroyed.
+	Specifically, calling procDestroyWindow.Call(hwnd) is what triggers the WM_DESTROY message to be sent to that hwnd's wndProc.
+
+	The Flow: User clicks Exit (or Hook panics) → WM_CLOSE → DestroyWindow() → WM_DESTROY → PostQuitMessage().
+*/
+const WM_DESTROY = 0x0002
+
+// Win32 message constants missing from x/sys/windows
+const (
+	WM_CLOSE = 0x0010
+
+	WM_NULL = 0
+	WM_USER = 0x0400
+)
+
+const (
+	WM_QUERYENDSESSION = 0x0011
+	WM_ENDSESSION      = 0x0016
+)
+
+const (
+	WM_WTSSESSION_CHANGE = 0x02B1
+
+	WTS_SESSION_LOCK   = 0x7
+	WTS_SESSION_UNLOCK = 0x8
+)
+
+const (
+	WM_SYSCOMMAND = 0x0112
+	SC_MOVE       = 0xF010
+)
+
+const (
+	PM_NOREMOVE = 0x0000
+	PM_REMOVE   = 0x0001
+	PM_NOYIELD  = 0x0002
+)
+
+const (
+	GWL_STYLE   = -16 // We could use ^uintptr(15) to represent -16 (GWL_STYLE) to prevent Go constant overflow errors.
+	GWL_EXSTYLE = -20
+)
+
+const SW_HIDE = 0
+
+const (
+	INPUT_MOUSE        = 0
+	INPUT_KEYBOARD     = 1
+	KEYEVENTF_KEYUP    = 0x0002
+	KEYEVENTF_SCANCODE = 0x0008
+	KEYEVENTF_EXTENDED = 0x0001
+
+	// Modifier virtual keys
+	VK_SHIFT   = 0x10
+	VK_CONTROL = 0x11
+	VK_MENU    = 0x12 // Alt key
+	//no VK_WIN exists, must OR the two manually
+
+	VK_LBUTTON = 0x01
+	VK_RBUTTON = 0x02
+	VK_MBUTTON = 0x04
+	//left winkey
+	VK_LWIN = 0x5B
+	//right winkey
+	VK_RWIN = 0x5C
+
+	VK_LSHIFT = 0xA0
+	VK_RSHIFT = 0xA1
+
+	VK_LCONTROL = 0xA2
+	VK_RCONTROL = 0xA3
+	VK_LMENU    = 0xA4 // Left Alt
+	VK_RMENU    = 0xA5 // Right Alt
+
+	VK_E      = 0x45
+	VK_F      = 0x46
+	VK_F12    = 0x7B // F12
+	VK_ESCAPE = 0x1B
+)
+
+const WS_THICKFRAME = 0x00040000 // or WS_SIZEBOX which has same value (as per chatgpt 5.5)
+
+const GUI_INMOVESIZE = 0x00000002
+
+const (
+	MOUSEEVENTF_LEFTDOWN   = 0x0002
+	MOUSEEVENTF_LEFTUP     = 0x0004
+	MOUSEEVENTF_RIGHTDOWN  = 0x0008
+	MOUSEEVENTF_RIGHTUP    = 0x0010
+	MOUSEEVENTF_MIDDLEDOWN = 0x0020
+	MOUSEEVENTF_MIDDLEUP   = 0x0040
+)
+
+const (
+
+	// Low-level keyboard hook flag
+	LLKHF_INJECTED = 0x00000010
+	// mouse:
+	LLMHF_INJECTED = 0x00000001
+)
+
+const (
+	NOTIFYICON_VERSION_4 = 4
+	NIM_SETVERSION       = 0x00000004
+)
+
+const (
+	SMTO_NORMAL      = 0x0000
+	SMTO_ABORTIFHUNG = 0x0002
+
+	MF_STRING = 0x0000
+
+	MF_GRAYED   = 0x00000001
+	MF_DISABLED = 0x00000002
+	MF_CHECKED  = 0x00000008
+)
+
+const (
+	MOUSEEVENTF_ABSOLUTE    = 0x8000
+	MOUSEEVENTF_VIRTUALDESK = 0x4000
+	MOUSEEVENTF_MOVE        = 0x0001
+)
+
+const (
+	SM_XVIRTUALSCREEN  = 76
+	SM_YVIRTUALSCREEN  = 77
+	SM_CXVIRTUALSCREEN = 78
+	SM_CYVIRTUALSCREEN = 79
+)
+
+// --- Routing & Interface Structs ---
+
+type MIB_IPFORWARDROW struct {
+	ForwardDest      uint32
+	ForwardMask      uint32
+	ForwardPolicy    uint32
+	ForwardNextHop   uint32
+	ForwardIfIndex   uint32
+	ForwardType      uint32
+	ForwardProto     uint32
+	ForwardAge       uint32
+	ForwardNextHopAS uint32
+	ForwardMetric1   uint32
+	ForwardMetric2   uint32
+	ForwardMetric3   uint32
+	ForwardMetric4   uint32
+	ForwardMetric5   uint32
+}
+
+type MIB_IFROW struct {
+	WszName         [256]uint16
+	Index           uint32
+	Type            uint32
+	Mtu             uint32
+	Speed           uint32
+	PhysAddrLen     uint32
+	PhysAddr        [8]byte
+	AdminStatus     uint32
+	OperStatus      uint32
+	LastChange      uint32
+	InOctets        uint32
+	InUcastPkts     uint32
+	InNUcastPkts    uint32
+	InDiscards      uint32
+	InErrors        uint32
+	InUnknownProtos uint32
+	OutOctets       uint32
+	OutUcastPkts    uint32
+	OutNUcastPkts   uint32
+	OutDiscards     uint32
+	OutErrors       uint32
+	OutQLen         uint32
+	DescrLen        uint32
+	Descr           [256]byte
+}
+
+type MIB_IPFORWARDTABLE struct {
+	NumEntries uint32
+	Table      [1]MIB_IPFORWARDROW // placeholder for dynamic allocation
+}
+
+type MIB_IPADDRROW struct {
+	Addr      uint32
+	Index     uint32
+	Mask      uint32
+	BCastAddr uint32
+	ReasmSize uint32
+	Unused1   uint16
+	Unused2   uint16
+}
+
+type MIB_IPADDRTABLE struct {
+	NumEntries uint32
+	Table      [1]MIB_IPADDRROW // Anchor for the array
+}
+
+// --- Routing API Wrappers ---
+
+// GetBestInterface retrieves the index of the interface that has the best route to the specified IPv4 address.
+func GetBestInterface(dwDestAddr uint32, pdwBestIfIndex *uint32) WinResult {
+	return procGetBestInterface.Call(uintptr(dwDestAddr), uintptr(unsafe.Pointer(pdwBestIfIndex)))
+}
+
+// GetIpForwardTable retrieves the IPv4 routing table.
+func GetIpForwardTable(pIpForwardTable unsafe.Pointer, pdwSize *uint32, bOrder bool) WinResult {
+	return procGetIPForwardTable.Call(uintptr(pIpForwardTable), uintptr(unsafe.Pointer(pdwSize)), boolToUintptr(bOrder))
+}
+
+// CreateIpForwardEntry creates a route in the local computer's IPv4 routing table.
+func CreateIpForwardEntry(pRoute unsafe.Pointer) WinResult {
+	return procCreateIPForwardEntry.Call(uintptr(pRoute))
+}
+
+// DeleteIpForwardEntry deletes an existing route in the local computer's IPv4 routing table.
+func DeleteIpForwardEntry(pRoute unsafe.Pointer) WinResult {
+	return procDeleteIPForwardEntry.Call(uintptr(pRoute))
+}
+
+// GetIfTable retrieves the MIB-II interface table.
+func GetIfTable(pIfTable unsafe.Pointer, pdwSize *uint32, bOrder bool) WinResult {
+	return procGetIfTable.Call(uintptr(pIfTable), uintptr(unsafe.Pointer(pdwSize)), boolToUintptr(bOrder))
+}
+
+// GetIpAddrTable retrieves the interface-to-IPv4 address mapping table.
+func GetIpAddrTable(pIpAddrTable unsafe.Pointer, pdwSize *uint32, bOrder bool) WinResult {
+	return procGetIPAddrTable.Call(uintptr(pIpAddrTable), uintptr(unsafe.Pointer(pdwSize)), boolToUintptr(bOrder))
+}
+
+// --- Hook Structs ---
+
+type KBDLLHOOKSTRUCT struct { // TODO: see what's the difference between this and KEYBDINPUT struct! did we misalign something?! tho both seem to work.
+	VkCode      uint32
+	ScanCode    uint32
+	Flags       uint32
+	Time        uint32
+	DwExtraInfo uintptr
+}
+
+// --- SetupAPI Structs and Constants ---
+
+type SP_DEVINFO_DATA struct {
+	CbSize    uint32
+	ClassGuid windows.GUID
+	DevInst   uint32
+	Reserved  uintptr
+}
+
+type SP_CLASSINSTALL_HEADER struct {
+	CbSize          uint32
+	InstallFunction uint32
+}
+
+type SP_PROPCHANGE_PARAMS struct {
+	ClassInstallHeader SP_CLASSINSTALL_HEADER
+	StateChange        uint32
+	Scope              uint32
+	HwProfile          uint32
+}
+
+const (
+	DIGCF_DEFAULT         = 0x00000001
+	DIGCF_PRESENT         = 0x00000002
+	DIGCF_ALLCLASSES      = 0x00000004
+	DIGCF_PROFILE         = 0x00000008
+	DIGCF_DEVICEINTERFACE = 0x00000010
+
+	SPDRP_DEVICEDESC = 0x00000000
+
+	DIF_PROPERTYCHANGE = 0x00000012
+	DICS_PROPCHANGE    = 0x00000003
+	DICS_FLAG_GLOBAL   = 0x00000001
+
+	HC_ACTION = 0
+)
+
+// --- SetupAPI Wrappers ---
+
+func SetupDiGetClassDevs(classGuid *windows.GUID, enumerator *uint16, hwndParent windows.Handle, flags uint32) (windows.Handle, WinResult) {
+	res := procSetupDiGetClassDevs.Call(
+		uintptr(unsafe.Pointer(classGuid)),
+		uintptr(unsafe.Pointer(enumerator)),
+		uintptr(hwndParent),
+		uintptr(flags),
+	)
+	return windows.Handle(res.R1), res
+}
+
+func SetupDiEnumDeviceInfo(deviceInfoSet windows.Handle, memberIndex uint32, deviceInfoData *SP_DEVINFO_DATA) WinResult {
+	return procSetupDiEnumDeviceInfo.Call(
+		uintptr(deviceInfoSet),
+		uintptr(memberIndex),
+		uintptr(unsafe.Pointer(deviceInfoData)),
+	)
+}
+
+func SetupDiDestroyDeviceInfoList(deviceInfoSet windows.Handle) WinResult {
+	return procSetupDiDestroyDeviceInfoList.Call(uintptr(deviceInfoSet))
+}
+
+func SetupDiGetDeviceInstanceId(deviceInfoSet windows.Handle, deviceInfoData *SP_DEVINFO_DATA, deviceInstanceId *uint16, deviceInstanceIdSize uint32, requiredSize *uint32) WinResult {
+	return procSetupDiGetDeviceInstanceId.Call(
+		uintptr(deviceInfoSet),
+		uintptr(unsafe.Pointer(deviceInfoData)),
+		uintptr(unsafe.Pointer(deviceInstanceId)),
+		uintptr(deviceInstanceIdSize),
+		uintptr(unsafe.Pointer(requiredSize)),
+	)
+}
+
+func SetupDiGetDeviceRegistryProperty(deviceInfoSet windows.Handle, deviceInfoData *SP_DEVINFO_DATA, property uint32, propertyRegDataType *uint32, propertyBuffer *byte, propertyBufferSize uint32, requiredSize *uint32) WinResult {
+	return procSetupDiGetDeviceRegistryProperty.Call(
+		uintptr(deviceInfoSet),
+		uintptr(unsafe.Pointer(deviceInfoData)),
+		uintptr(property),
+		uintptr(unsafe.Pointer(propertyRegDataType)),
+		uintptr(unsafe.Pointer(propertyBuffer)),
+		uintptr(propertyBufferSize),
+		uintptr(unsafe.Pointer(requiredSize)),
+	)
+}
+
+func SetupDiSetClassInstallParams(deviceInfoSet windows.Handle, deviceInfoData *SP_DEVINFO_DATA, classInstallParams *SP_PROPCHANGE_PARAMS, classInstallParamsSize uint32) WinResult {
+	return procSetupDiSetClassInstallParams.Call(
+		uintptr(deviceInfoSet),
+		uintptr(unsafe.Pointer(deviceInfoData)),
+		uintptr(unsafe.Pointer(classInstallParams)),
+		uintptr(classInstallParamsSize),
+	)
+}
+
+func SetupDiCallClassInstaller(installFunction uint32, deviceInfoSet windows.Handle, deviceInfoData *SP_DEVINFO_DATA) WinResult {
+	return procSetupDiCallClassInstaller.Call(
+		uintptr(installFunction),
+		uintptr(deviceInfoSet),
+		uintptr(unsafe.Pointer(deviceInfoData)),
+	)
 }
