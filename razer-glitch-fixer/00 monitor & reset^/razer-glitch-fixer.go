@@ -51,8 +51,9 @@ const (
 // ===================================================
 
 var (
-	mutex    sync.Mutex
-	keyTimes = make(map[uint16][]time.Time) // per-key sliding window of timestamps
+	mutex            sync.Mutex
+	keyTimes         = make(map[uint16][]time.Time) // per-key sliding window of timestamps
+	glitchSignalChan = make(chan struct{}, 1)       // channel to signal main thread on glitch
 )
 
 const WAIT_FOR_GLITCH_SECONDS = 10
@@ -61,13 +62,33 @@ func main() {
 	runtime.LockOSThread()
 	defer deinit()
 
-	fmt.Println("Razer Glitch Fixer starting... (must run as Administrator to can usbreset the keyboard)")
+	fmt.Println("Razer Glitch Fixer starting... (must run as Administrator to usbreset the keyboard)")
 	fmt.Printf("Waiting %d seconds for glitch to happen.\n", WAIT_FOR_GLITCH_SECONDS)
 
 	go hookWorker()
 
-	time.Sleep(WAIT_FOR_GLITCH_SECONDS * time.Second) // wait longer so that after reset the glitch might still happen(ie. anew) then we can reset again!
+	// Timer loop: resets every time a glitch is detected
+	timer := time.NewTimer(WAIT_FOR_GLITCH_SECONDS * time.Second) // wait longer so that after reset the glitch might still happen(ie. anew) then we can reset again!
+	defer timer.Stop()
 
+	for {
+		select {
+		case <-timer.C:
+			logf("No glitches detected for %d seconds. Exiting...", WAIT_FOR_GLITCH_SECONDS)
+			goto finish
+		case <-glitchSignalChan:
+			logf("Glitch detected! Extending wait time by another %d seconds...", WAIT_FOR_GLITCH_SECONDS)
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			timer.Reset(WAIT_FOR_GLITCH_SECONDS * time.Second)
+		}
+	}
+
+finish:
 	deinit()
 	time.Sleep(1 * time.Second) // so that the following is last msg
 
@@ -145,10 +166,6 @@ func keyboardProc(nCode int32, wParam uintptr, lParam unsafe.Pointer) uintptr {
 		}
 		logf("Media key (down or up): %s (VK=0x%02X)", name, vk)
 
-		// ────────────────────────────────────────────────
-		//  ↓  This is the migrated glitch detection logic  ↓
-		// ────────────────────────────────────────────────
-
 		mutex.Lock()
 		now := time.Now()
 
@@ -169,14 +186,18 @@ func keyboardProc(nCode int32, wParam uintptr, lParam unsafe.Pointer) uintptr {
 			logf("!!! GLITCH DETECTED: %s (VK=0x%02X) pressed %d times in %.1fs",
 				name, vk, count, glitchWindow.Seconds())
 
+			// Signal main loop to reset idle timer
+			select {
+			case glitchSignalChan <- struct{}{}:
+			default:
+			}
+
 			// Trigger reset (non-blocking from hook perspective)
 			go func() {
-				if true {
-					if err := resetRazerKeyboardViaClassInstaller(); err != nil {
-						logf("Reset failed: %v", err)
-					} else {
-						logf("Keyboard successfully reset — glitch should be cleared.")
-					}
+				if err := resetRazerKeyboardViaClassInstaller(); err != nil {
+					logf("Reset failed: %v", err)
+				} else {
+					logf("Keyboard successfully reset — glitch should be cleared.")
 				}
 			}()
 
@@ -190,15 +211,6 @@ func keyboardProc(nCode int32, wParam uintptr, lParam unsafe.Pointer) uintptr {
 next:
 	return wincoe.CallNextHookEx(0, nCode, wParam, uintptr(lParam)).R1
 }
-
-// func isMediaKey(vk uint32) bool {
-// 	switch vk {
-// 	case 0xB0, 0xB1, 0xB2, 0xB3, // next, prev, stop, play/pause
-// 		0xAE, 0xAF: // vol up/down
-// 		return true
-// 	}
-// 	return false
-// }
 
 func logf(format string, args ...any) {
 	s := fmt.Sprintf(format, args...)
@@ -426,7 +438,6 @@ func doPropertyChange(h windows.Handle, devInfo *wincoe.SP_DEVINFO_DATA) error {
 			}
 			return fmt.Errorf("%s failed: %w", who, res2.Err)
 		}
-
 		// Extremely defensive fallback
 		return fmt.Errorf("SetupDiCallClassInstaller failed: unknown error")
 	}

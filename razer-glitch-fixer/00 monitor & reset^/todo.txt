@@ -1,8 +1,20 @@
 todo:
-* see if glitch is still detected if auto-repeat key rate is lowest possible! because I see if I hold a media key now the glitch is detected due to rapid repeat rate!
+* should probably run full time, have systray icon like winbollocks(with toggleables) because when coming back from Sleep the glitch can appear so it's easy to forget to run it again!
 
-* after glitch/resetting, reset the time to wait for glitch as well, because glitch can sometimes happen twice, or maybe more times, so we need to reset as many times as needed, not run out of time and exit!
-* should probably run full time, have systray icon like winbollocks(with toggleables)
+* see if glitch is still detected if auto-repeat key rate is lowest possible! because I see if I hold a media key now the glitch is detected due to rapid repeat rate! Gemini 3.6 Flash Extended Thinking says "Yes, lowering the auto-repeat rate will almost certainly prevent false positives.
+ Why this happens:
+    At Default/Fast Windows Repeat Settings:
+        Holding down a key causes Windows auto-repeat to fire at around 30 repeats per second (30 Hz).
+        In your glitchWindow of 1.5 seconds, holding down a volume key easily registers 20–40 events, well above your glitchThreshold = 6.
+    At Lowest Windows Repeat Settings:
+        Repeat Delay set to long (~1000ms delay before repeat starts).
+        Repeat Rate set to slow (~2 Hz / 2 repeats per second).
+        In a 1.5-second window while holding down a media key:
+            0.0s: 1 initial key press (WM_KEYDOWN)
+            0.0s – 1.0s: Waiting through repeat delay (0 extra events)
+            1.0s – 1.5s: ~1 auto-repeat event
+        Total events in 1.5s: ~2 events, which is far below your threshold of 6." - https://gemini.google.com/app/00a2844ca2927667
 
 
 done:
+//* after glitch/resetting, reset the time to wait for glitch as well, because glitch can sometimes happen twice, or maybe more times, so we need to reset as many times as needed, not run out of time and exit!
