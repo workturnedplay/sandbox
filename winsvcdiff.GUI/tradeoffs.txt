@@ -6,4 +6,34 @@ Structural Design & Technical Trade-offs:
 
     Atomic API Execution: As discussed regarding Go's runtime, syscall.SyscallN wrapper executions (windows.Proc.Call) handle the TLS GetLastError thread state safely and return the OS error accurately in position 3, completely negating the need for direct assembler hooks.
 
-    UI Implementation Strategy: Pure Win32 UI development via direct SyscallN / C-struct layout requires writing window procedures, message loop pumps, and struct alignment mapping that spans ~5k+ lines just for the grid and tab controls specified. Given the scope constraints, the next step would be deciding between raw Win32 UI struct mapping (if you want zero third-party dependencies) or importing a lightweight layout wrapper like [github.com/lxn/walk](https://github.com/lxn/walk) or [github.com/gonutz/w32](https://github.com/gonutz/w32)
+ 
+ 
+ 4. Build Constraints & Compilation Strategy
+
+To achieve the intended result (a standalone binary with modern Win11 visual styling, no console popups, and elevated privileges requested automatically), you cannot just run go build.
+
+    Install go-winres: A tool to compile the XML manifest and an application icon into a .syso file that the Go linker understands.
+    PowerShell
+
+    go install github.com/tc-hib/go-winres@latest
+
+    Initialize and Build Resources:
+    Navigate to the root of your project.
+    PowerShell
+
+    go-winres init
+
+    (This creates a winres folder. You can place an icon.ico in it if you want an app icon. Ensure your cmd/winsvcdiff/app_manifest.xml contents are pasted into the generated winres/winres.json manifest section).
+
+    Generate the .syso file into the cmd/winsvcdiff directory:
+    PowerShell
+
+    go-winres make --out cmd/winsvcdiff/rsrc
+
+    Compile the Binary:
+    Use -ldflags="-H windowsgui" to explicitly strip the persistent cmd.exe backing process that Go attaches by default to Windows executables.
+    PowerShell
+
+    go build -ldflags="-H windowsgui -s -w" -o winsvcdiff.exe ./cmd/winsvcdiff
+
+    Note: -s -w strips debug symbols, reducing binary size and adhering to production-grade deployment.
