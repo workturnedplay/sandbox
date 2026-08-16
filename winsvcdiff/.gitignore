@@ -1,0 +1,10 @@
+*.bak
+*.log
+*.exe
+*.prof
+*.*~
+*.swp
+*.syso
+*.ico
+Win11-Services-Snapshot.json
+*.json
