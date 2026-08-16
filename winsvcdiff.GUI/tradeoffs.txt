@@ -1,0 +1,9 @@
+Structural Design & Technical Trade-offs:
+
+    Per-User Normalization Mechanics: Relying purely on the _XXXXX regex is flawed because some services happen to use underscores naturally. Therefore, NormalizePerUser strictly cross-references HKLM\SYSTEM\CurrentControlSet\Services\<BaseTemplate> checking for the UserServiceFlags DWORD. If missing, it rejects the substring match and treats it as a static service name.
+
+    Deterministic Process Spawning: Caching the current working directory in the elevation module's init() block immediately upon binary start avoids dynamic compute issues where background threads or side-effects modify the process's working path before ShellExecuteW fires.
+
+    Atomic API Execution: As discussed regarding Go's runtime, syscall.SyscallN wrapper executions (windows.Proc.Call) handle the TLS GetLastError thread state safely and return the OS error accurately in position 3, completely negating the need for direct assembler hooks.
+
+    UI Implementation Strategy: Pure Win32 UI development via direct SyscallN / C-struct layout requires writing window procedures, message loop pumps, and struct alignment mapping that spans ~5k+ lines just for the grid and tab controls specified. Given the scope constraints, the next step would be deciding between raw Win32 UI struct mapping (if you want zero third-party dependencies) or importing a lightweight layout wrapper like [github.com/lxn/walk](https://github.com/lxn/walk) or [github.com/gonutz/w32](https://github.com/gonutz/w32)
