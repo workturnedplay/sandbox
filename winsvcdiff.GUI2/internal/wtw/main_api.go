@@ -95,8 +95,9 @@ const (
 	tcmGetCurSel   = tcmFirst + 11
 	tcmSetCurSel   = tcmFirst + 12
 
-	nmDblClk     = -3
-	tcnSelChange = -551
+	nmDblClk       = -3
+	lvnColumnClick = -108
+	tcnSelChange   = -551
 
 	cbAddString     = 0x0143
 	cbSetCurSel     = 0x014E
@@ -660,6 +661,9 @@ type UI struct {
 	target       windows.Handle
 	progress     windows.Handle
 	rows         [4][]UIRow
+	originalRows [4][]UIRow
+	sortColumn   [4]int
+	sortOrder    [4]int // 0 = unsorted, 1 = A-Z, 2 = Z-A
 	callbacks    UIHandlers
 	queue        chan func()
 	combo        windows.Handle
@@ -719,9 +723,11 @@ type lvColumn struct {
 	Fmt     int32
 	CX      int32
 	Text    *uint16
+	TextMax int32
 	SubItem int32
 	Image   int32
 	Order   int32
+	Columns *uint32
 }
 
 type lvItem struct {
@@ -787,7 +793,12 @@ func RunUI(handlers UIHandlers) int {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
-	ui := &UI{callbacks: handlers, buttons: make(map[string]windows.Handle), queue: make(chan func(), 128)}
+	ui := &UI{
+		callbacks:  handlers,
+		buttons:    make(map[string]windows.Handle),
+		queue:      make(chan func(), 128),
+		sortColumn: [4]int{-1, -1, -1, -1},
+	}
 	if err := ui.initialize(); err != nil {
 		return 1
 	}
@@ -954,7 +965,16 @@ func (ui *UI) setupColumns(list windows.Handle) {
 	}
 	for i, h := range headers {
 		txt := windows.StringToUTF16Ptr(h.Name)
-		col := lvColumn{Mask: 0x0001 | 0x0002, Fmt: 0, CX: h.Width, Text: txt, SubItem: int32(i)}
+		col := lvColumn{
+			Mask:    0x0001 | 0x0002,
+			Fmt:     0,
+			CX:      h.Width,
+			Text:    txt,
+			TextMax: int32(len(h.Name) + 1),
+			SubItem: int32(i),
+			Image:   -1,
+			Order:   int32(i),
+		}
 		procSendMessageW.Call(uintptr(list), lvmInsertColumnW, uintptr(i), uintptr(unsafe.Pointer(&col)))
 	}
 }
@@ -1039,19 +1059,120 @@ func (ui *UI) handleNotify(lParam uintptr) uintptr {
 		return 0
 	}
 	for i, list := range ui.lists {
-		if hdr.HwndFrom != list || hdr.Code != nmDblClk {
+		if hdr.HwndFrom != list {
 			continue
 		}
-		act := (*nmitemActivate)(pointerFromUintptr(lParam, &lParam))
-		if act.IItem < 0 || act.IItem >= int32(len(ui.rows[i])) {
+
+		switch hdr.Code {
+		case lvnColumnClick:
+			click := (*nmitemActivate)(pointerFromUintptr(lParam, &lParam))
+			if click.ISubItem >= 0 && click.ISubItem < 5 {
+				ui.sortRows(i, int(click.ISubItem))
+			}
+			return 0
+
+		case nmDblClk:
+			act := (*nmitemActivate)(pointerFromUintptr(lParam, &lParam))
+			if act.IItem < 0 || act.IItem >= int32(len(ui.rows[i])) {
+				return 0
+			}
+			if (i == 0 || i == 1 || i == 3) && act.ISubItem == 3 && ui.rows[i][act.IItem].Editable {
+				ui.beginCombo(i, int(act.IItem))
+			}
 			return 0
 		}
-		if (i == 0 || i == 1 || i == 3) && act.ISubItem == 3 && ui.rows[i][act.IItem].Editable {
-			ui.beginCombo(i, int(act.IItem))
-		}
-		return 0
 	}
 	return 0
+}
+
+func (ui *UI) syncCheckedRows(tab int) {
+	if tab < 0 || tab >= len(ui.lists) || (tab != 0 && tab != 1) {
+		return
+	}
+
+	list := ui.lists[tab]
+	for i := range ui.rows[tab] {
+		state, _, _ := procSendMessageW.Call(
+			uintptr(list),
+			lvmGetItemState,
+			uintptr(i),
+			lvmItemStateChecked|lvmItemStateUnchecked,
+		)
+		ui.rows[tab][i].Checked = state&lvmItemStateChecked != 0
+	}
+}
+
+func (ui *UI) sortRows(tab, column int) {
+	if tab < 0 || tab >= len(ui.lists) || column < 0 || column >= 5 {
+		return
+	}
+
+	ui.endCombo(false)
+	ui.syncCheckedRows(tab)
+
+	// Cycle:
+	//   different column -> A-Z
+	//   A-Z              -> Z-A
+	//   Z-A              -> original/unsorted
+	if ui.sortColumn[tab] != column {
+		ui.sortColumn[tab] = column
+		ui.sortOrder[tab] = 1
+	} else {
+		switch ui.sortOrder[tab] {
+		case 1:
+			ui.sortOrder[tab] = 2
+		case 2:
+			ui.sortOrder[tab] = 0
+		default:
+			ui.sortOrder[tab] = 1
+		}
+	}
+
+	if ui.sortOrder[tab] == 0 {
+		ui.rows[tab] = append([]UIRow(nil), ui.originalRows[tab]...)
+
+		// Preserve the current checkbox state when restoring original order.
+		checked := make(map[string]bool, len(ui.rows[tab]))
+		for _, row := range ui.rows[tab] {
+			checked[row.Key] = row.Checked
+		}
+
+		ui.rows[tab] = append([]UIRow(nil), ui.originalRows[tab]...)
+		for i := range ui.rows[tab] {
+			if checkedValue, ok := checked[ui.rows[tab][i].Key]; ok {
+				ui.rows[tab][i].Checked = checkedValue
+			}
+		}
+	} else {
+		sort.SliceStable(ui.rows[tab], func(i, j int) bool {
+			a := ui.sortValue(ui.rows[tab][i], column)
+			b := ui.sortValue(ui.rows[tab][j], column)
+
+			if ui.sortOrder[tab] == 1 {
+				return strings.ToLower(a) < strings.ToLower(b)
+			}
+			return strings.ToLower(a) > strings.ToLower(b)
+		})
+	}
+
+	ui.renderRows(tab)
+}
+
+func (ui *UI) sortValue(row UIRow, column int) string {
+	switch column {
+	case 0:
+		return row.Key
+	case 1:
+		return row.DisplayName
+	case 2:
+		return row.Status
+	case 3:
+		return row.LiveStartup
+	case 4:
+		return row.Target
+	default:
+		return ""
+	}
 }
 
 func (ui *UI) showTab(index int) {
@@ -1156,9 +1277,24 @@ func (ui *UI) SetRows(tab int, rows []UIRow) {
 	if tab < 0 || tab >= len(ui.lists) {
 		return
 	}
+
+	ui.originalRows[tab] = append([]UIRow(nil), rows...)
 	ui.rows[tab] = append([]UIRow(nil), rows...)
+	ui.sortColumn[tab] = -1
+	ui.sortOrder[tab] = 0
+
+	ui.renderRows(tab)
+}
+
+func (ui *UI) renderRows(tab int) {
+	if tab < 0 || tab >= len(ui.lists) {
+		return
+	}
+
+	rows := ui.rows[tab]
 	list := ui.lists[tab]
 	procSendMessageW.Call(uintptr(list), lvmDeleteAllItems, 0, 0)
+
 	for i, row := range rows {
 		values := []string{row.Key, row.DisplayName, row.Status, row.LiveStartup, row.Target}
 		text := windows.StringToUTF16Ptr(values[0])
