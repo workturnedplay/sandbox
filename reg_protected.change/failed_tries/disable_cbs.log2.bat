@@ -133,9 +133,38 @@ public class TokenPrivs
 
 public class RegistrySecurityHelper
 {
+    private const uint HKEY_LOCAL_MACHINE = 0x80000002;
+
+    private const uint KEY_QUERY_VALUE = 0x0001;
+    private const uint KEY_SET_VALUE = 0x0002;
+    private const uint KEY_READ = 0x20019;
+
+    private const uint READ_CONTROL = 0x00020000;
+    private const uint WRITE_DAC = 0x00040000;
+    private const uint WRITE_OWNER = 0x00080000;
+
     private const uint OWNER_SECURITY_INFORMATION = 0x00000001;
-    private const uint GROUP_SECURITY_INFORMATION = 0x00000002;
-    private const uint DACL_SECURITY_INFORMATION = 0x00000004;
+
+    private const uint REG_OPTION_OPEN_LINK = 0x0008;
+
+    [DllImport("advapi32.dll", ExactSpelling = true, SetLastError = true)]
+    private static extern uint RegOpenKeyExW(
+        IntPtr hKey,
+        string lpSubKey,
+        uint ulOptions,
+        uint samDesired,
+        out IntPtr phkResult);
+
+    [DllImport("advapi32.dll", ExactSpelling = true, SetLastError = true)]
+    private static extern uint RegCloseKey(
+        IntPtr hKey);
+
+    [DllImport("advapi32.dll", ExactSpelling = true, SetLastError = true)]
+    private static extern uint RegGetKeySecurity(
+        IntPtr hKey,
+        uint SecurityInformation,
+        IntPtr pSecurityDescriptor,
+        ref uint lpcbSecurityDescriptor);
 
     [DllImport("advapi32.dll", ExactSpelling = true, SetLastError = true)]
     private static extern uint RegSetKeySecurity(
@@ -143,61 +172,110 @@ public class RegistrySecurityHelper
         uint SecurityInformation,
         IntPtr pSecurityDescriptor);
 
-    public static byte[] CaptureSecurityDescriptor(
-        Microsoft.Win32.RegistryKey baseKey,
-        string subKeyPath)
+    public static byte[] CaptureSecurityDescriptor()
     {
-        var keyRead = baseKey.OpenSubKey(
-            subKeyPath,
-            Microsoft.Win32.RegistryKeyPermissionCheck.ReadSubTree,
-            System.Security.AccessControl.RegistryRights.ReadPermissions);
+        IntPtr hKey = IntPtr.Zero;
 
-        if (keyRead == null)
+        uint result = RegOpenKeyExW(
+            new IntPtr(unchecked((int)HKEY_LOCAL_MACHINE)),
+            "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Component Based Servicing",
+            REG_OPTION_OPEN_LINK,
+            KEY_READ | READ_CONTROL,
+            out hKey);
+
+        if (result != 0)
         {
-            throw new InvalidOperationException(
-                "Could not open registry key to capture its original security descriptor.");
+            throw new Win32Exception(
+                (int)result,
+                "RegOpenKeyExW failed while capturing the original security descriptor.");
         }
 
         try
         {
-            var security = keyRead.GetAccessControl();
+            uint size = 0;
 
-            return security.GetSecurityDescriptorBinaryForm();
+            result = RegGetKeySecurity(
+                hKey,
+                0x00000001 | 0x00000002 | 0x00000004,
+                IntPtr.Zero,
+                ref size);
+
+            if (size == 0)
+            {
+                throw new Win32Exception(
+                    (int)result,
+                    "RegGetKeySecurity did not return a descriptor size.");
+            }
+
+            IntPtr descriptor = Marshal.AllocHGlobal((int)size);
+
+            try
+            {
+                uint actualSize = size;
+
+                result = RegGetKeySecurity(
+                    hKey,
+                    0x00000001 | 0x00000002 | 0x00000004,
+                    descriptor,
+                    ref actualSize);
+
+                if (result != 0)
+                {
+                    throw new Win32Exception(
+                        (int)result,
+                        "RegGetKeySecurity failed while capturing the original security descriptor.");
+                }
+
+                byte[] copy = new byte[actualSize];
+                Marshal.Copy(descriptor, copy, 0, (int)actualSize);
+                return copy;
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(descriptor);
+            }
         }
         finally
         {
-            keyRead.Close();
+            RegCloseKey(hKey);
         }
     }
 
-    public static void RestoreSecurityDescriptor(
-        Microsoft.Win32.RegistryKey key,
-        byte[] descriptor)
+    public static void RestoreSecurityDescriptor(byte[] descriptor)
     {
+        IntPtr hKey = IntPtr.Zero;
+
+        uint result = RegOpenKeyExW(
+            new IntPtr(unchecked((int)HKEY_LOCAL_MACHINE)),
+            "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Component Based Servicing",
+            REG_OPTION_OPEN_LINK,
+            KEY_READ | READ_CONTROL | WRITE_DAC | WRITE_OWNER,
+            out hKey);
+
+        if (result != 0)
+        {
+            throw new Win32Exception(
+                (int)result,
+                "RegOpenKeyExW failed while opening the key for security restoration.");
+        }
+
         IntPtr descriptorPtr = IntPtr.Zero;
 
         try
         {
             descriptorPtr = Marshal.AllocHGlobal(descriptor.Length);
+            Marshal.Copy(descriptor, 0, descriptorPtr, descriptor.Length);
 
-            Marshal.Copy(
-                descriptor,
-                0,
-                descriptorPtr,
-                descriptor.Length);
-
-            uint result = RegSetKeySecurity(
-                key.Handle.DangerousGetHandle(),
-                OWNER_SECURITY_INFORMATION |
-                GROUP_SECURITY_INFORMATION |
-                DACL_SECURITY_INFORMATION,
+            result = RegSetKeySecurity(
+                hKey,
+                0x00000001 | 0x00000002 | 0x00000004,
                 descriptorPtr);
 
             if (result != 0)
             {
                 throw new Win32Exception(
                     (int)result,
-                    "RegSetKeySecurity failed while restoring the original security descriptor. Win32 error: " + result);
+                    "RegSetKeySecurity failed while restoring the original security descriptor.");
             }
         }
         finally
@@ -206,6 +284,8 @@ public class RegistrySecurityHelper
             {
                 Marshal.FreeHGlobal(descriptorPtr);
             }
+
+            RegCloseKey(hKey);
         }
     }
 }
@@ -279,9 +359,7 @@ function Set-RegistryDwordSafe {
     # to reconstruct it during restoration.
     #
     $originalSecurityDescriptor =
-    [RegistrySecurityHelper]::CaptureSecurityDescriptor(
-        $baseKey,
-        $subKeyPath)
+        [RegistrySecurityHelper]::CaptureSecurityDescriptor()
 
     # Keep the original .NET ACL only for the temporary modification.
     $keyRead = $baseKey.OpenSubKey(
@@ -377,29 +455,8 @@ function Set-RegistryDwordSafe {
         # ---------------------------------------------------------
         # 7. Restore the EXACT security descriptor captured above.
         # ---------------------------------------------------------
-        $restoreRights =
-    [System.Security.AccessControl.RegistryRights]::ReadPermissions -bor
-    [System.Security.AccessControl.RegistryRights]::TakeOwnership -bor
-    [System.Security.AccessControl.RegistryRights]::ChangePermissions -bor
-    [System.Security.AccessControl.RegistryRights]::WriteOwner
-
-$keyRestore = $baseKey.OpenSubKey(
-    $subKeyPath,
-    [Microsoft.Win32.RegistryKeyPermissionCheck]::ReadWriteSubTree,
-    $restoreRights)
-
-if ($null -eq $keyRestore) {
-    throw "CRITICAL: Could not reopen registry key with security-descriptor restoration rights: $KeyPath"
-}
-
-try {
-    [RegistrySecurityHelper]::RestoreSecurityDescriptor(
-        $keyRestore,
-        $originalSecurityDescriptor)
-}
-finally {
-    $keyRestore.Close()
-}
+        [RegistrySecurityHelper]::RestoreSecurityDescriptor(
+            $originalSecurityDescriptor)
 
         # ---------------------------------------------------------
         # 8. Verify the owner after restoration.

@@ -133,15 +133,33 @@ public class TokenPrivs
 
 public class RegistrySecurityHelper
 {
+    private const uint HKEY_LOCAL_MACHINE = 0x80000002;
+    private const uint KEY_READ = 0x00020019;
+    private const uint WRITE_DAC = 0x00040000;
+    private const uint WRITE_OWNER = 0x00080000;
+
     private const uint OWNER_SECURITY_INFORMATION = 0x00000001;
     private const uint GROUP_SECURITY_INFORMATION = 0x00000002;
     private const uint DACL_SECURITY_INFORMATION = 0x00000004;
+    private const uint SACL_SECURITY_INFORMATION = 0x00000008;
+
+    [DllImport("advapi32.dll", ExactSpelling = true, SetLastError = true)]
+    private static extern uint RegOpenKeyExW(
+        IntPtr hKey,
+        string lpSubKey,
+        uint ulOptions,
+        uint samDesired,
+        out IntPtr phkResult);
 
     [DllImport("advapi32.dll", ExactSpelling = true, SetLastError = true)]
     private static extern uint RegSetKeySecurity(
         IntPtr hKey,
         uint SecurityInformation,
         IntPtr pSecurityDescriptor);
+
+    [DllImport("advapi32.dll", ExactSpelling = true)]
+    private static extern uint RegCloseKey(
+        IntPtr hKey);
 
     public static byte[] CaptureSecurityDescriptor(
         Microsoft.Win32.RegistryKey baseKey,
@@ -170,10 +188,24 @@ public class RegistrySecurityHelper
         }
     }
 
-    public static void RestoreSecurityDescriptor(
-        Microsoft.Win32.RegistryKey key,
-        byte[] descriptor)
+    public static void RestoreSecurityDescriptor(byte[] descriptor)
     {
+        IntPtr hKey = IntPtr.Zero;
+
+        uint result = RegOpenKeyExW(
+            new IntPtr(unchecked((int)HKEY_LOCAL_MACHINE)),
+            "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Component Based Servicing",
+            0,
+            KEY_READ | WRITE_DAC | WRITE_OWNER,
+            out hKey);
+
+        if (result != 0)
+        {
+            throw new Win32Exception(
+                (int)result,
+                "RegOpenKeyExW failed while opening the key for security restoration. Win32 error: " + result);
+        }
+
         IntPtr descriptorPtr = IntPtr.Zero;
 
         try
@@ -186,11 +218,12 @@ public class RegistrySecurityHelper
                 descriptorPtr,
                 descriptor.Length);
 
-            uint result = RegSetKeySecurity(
-                key.Handle.DangerousGetHandle(),
+            result = RegSetKeySecurity(
+                hKey,
                 OWNER_SECURITY_INFORMATION |
                 GROUP_SECURITY_INFORMATION |
-                DACL_SECURITY_INFORMATION,
+                DACL_SECURITY_INFORMATION |
+                SACL_SECURITY_INFORMATION,
                 descriptorPtr);
 
             if (result != 0)
@@ -206,6 +239,8 @@ public class RegistrySecurityHelper
             {
                 Marshal.FreeHGlobal(descriptorPtr);
             }
+
+            RegCloseKey(hKey);
         }
     }
 }
@@ -377,29 +412,8 @@ function Set-RegistryDwordSafe {
         # ---------------------------------------------------------
         # 7. Restore the EXACT security descriptor captured above.
         # ---------------------------------------------------------
-        $restoreRights =
-    [System.Security.AccessControl.RegistryRights]::ReadPermissions -bor
-    [System.Security.AccessControl.RegistryRights]::TakeOwnership -bor
-    [System.Security.AccessControl.RegistryRights]::ChangePermissions -bor
-    [System.Security.AccessControl.RegistryRights]::WriteOwner
-
-$keyRestore = $baseKey.OpenSubKey(
-    $subKeyPath,
-    [Microsoft.Win32.RegistryKeyPermissionCheck]::ReadWriteSubTree,
-    $restoreRights)
-
-if ($null -eq $keyRestore) {
-    throw "CRITICAL: Could not reopen registry key with security-descriptor restoration rights: $KeyPath"
-}
-
-try {
-    [RegistrySecurityHelper]::RestoreSecurityDescriptor(
-        $keyRestore,
-        $originalSecurityDescriptor)
-}
-finally {
-    $keyRestore.Close()
-}
+        [RegistrySecurityHelper]::RestoreSecurityDescriptor(
+            $originalSecurityDescriptor)
 
         # ---------------------------------------------------------
         # 8. Verify the owner after restoration.
