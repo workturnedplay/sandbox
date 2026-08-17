@@ -1,0 +1,9 @@
+*.bak
+*.log
+*.exe
+*.prof
+*.*~
+*.swp
+*.syso
+*.ico
+*.json
