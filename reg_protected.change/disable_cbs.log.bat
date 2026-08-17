@@ -9,6 +9,7 @@ rem see at the end to see which registry/value it changes!
 fltmc >nul 2>&1
 if not "%errorlevel%"=="0" (
     echo This script must be run as Administrator.
+    pause
     exit /b 1
 )
 
@@ -17,7 +18,12 @@ if not "%errorlevel%"=="0" (
 :: -------------------------------
 set "BATCH_PATH=%~f0"
 powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$c = (Get-Content $env:BATCH_PATH -Raw) -replace '(?s)^.*?===PS_START===\r?\n', ''; Invoke-Command -ScriptBlock ([scriptblock]::Create($c))"
-exit /b %errorlevel%
+set "EXIT_CODE=%errorlevel%"
+echo.
+echo PowerShell exited with code %EXIT_CODE%.
+echo Press any key to close this window...
+pause >nul
+exit /b %EXIT_CODE%
 
 ===PS_START===
 $ErrorActionPreference = 'Stop'
@@ -59,7 +65,6 @@ public class TokenPrivs {
     public static void Enable(string privilege) {
         IntPtr token;
 
-        // TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY
         const uint TOKEN_ADJUST_PRIVILEGES = 0x0020;
         const uint TOKEN_QUERY = 0x0008;
 
@@ -95,12 +100,10 @@ public class TokenPrivs {
                 "AdjustTokenPrivileges failed for " + privilege + ".");
         }
 
-        // AdjustTokenPrivileges can return TRUE while GetLastError()
-        // reports ERROR_NOT_ALL_ASSIGNED.
-        int error = Marshal.GetLastWin32Error();
-        if (error != 0) {
+        // ERROR_NOT_ALL_ASSIGNED means the privilege was not enabled.
+        if (Marshal.GetLastWin32Error() == 1300) {
             throw new Win32Exception(
-                error,
+                1300,
                 "Privilege was not assigned: " + privilege + ".");
         }
     }
@@ -125,6 +128,7 @@ function Set-RegistryDwordSafe {
     }
 
     $rootName = $KeyPath.Split('\')[0].ToUpper()
+
     if (-not $roots.ContainsKey($rootName)) {
         throw "Unsupported registry root: $rootName"
     }
@@ -159,17 +163,17 @@ function Set-RegistryDwordSafe {
     }
 
     # -------------------------------------------------------------
-    # 2. Enable privileges required to modify the security descriptor.
+    # 2. Enable privileges required to modify ownership/permissions.
     # -------------------------------------------------------------
     [TokenPrivs]::Enable('SeTakeOwnershipPrivilege')
     [TokenPrivs]::Enable('SeRestorePrivilege')
 
     # -------------------------------------------------------------
-    # 3. Save the original security descriptor.
+    # 3. Capture the complete original security descriptor.
     # -------------------------------------------------------------
     #
-    # ReadSubTree is sufficient because this handle is only used
-    # to retrieve the existing ACL/owner.
+    # GetAccessControl() returns the Access, Owner and Group
+    # portions of the security descriptor.
     #
     $keyRead = $baseKey.OpenSubKey(
         $subKeyPath,
@@ -183,19 +187,26 @@ function Set-RegistryDwordSafe {
     try {
         $origAcl = $keyRead.GetAccessControl()
         $workAcl = $keyRead.GetAccessControl()
+
+        # Capture the original owner independently so the verification
+        # does not depend on a later-mutated RegistrySecurity object.
+        $origOwner = $origAcl.GetOwner(
+            [System.Security.Principal.NTAccount]).Value
     }
     finally {
         $keyRead.Close()
     }
 
+    Write-Host "Original owner: $origOwner"
+
     $admin = New-Object System.Security.Principal.NTAccount('Administrators')
 
     # -------------------------------------------------------------
-    # 4. Take ownership.
+    # 4. Temporarily take ownership.
     # -------------------------------------------------------------
     #
-    # ReadWriteSubTree is intentional here. SetAccessControl()
-    # needs a writable registry handle.
+    # ReadWriteSubTree is required because SetAccessControl() writes
+    # the security descriptor.
     #
     $keyOwn = $baseKey.OpenSubKey(
         $subKeyPath,
@@ -217,10 +228,6 @@ function Set-RegistryDwordSafe {
     # -------------------------------------------------------------
     # 5. Temporarily grant Administrators Full Control.
     # -------------------------------------------------------------
-    #
-    # Again, ReadWriteSubTree is required because the security
-    # descriptor is being modified.
-    #
     $keyPerm = $baseKey.OpenSubKey(
         $subKeyPath,
         [Microsoft.Win32.RegistryKeyPermissionCheck]::ReadWriteSubTree,
@@ -246,12 +253,8 @@ function Set-RegistryDwordSafe {
     }
 
     # -------------------------------------------------------------
-    # 6. Write the registry value.
+    # 6. Write the requested registry value.
     # -------------------------------------------------------------
-    #
-    # The original ACL must be restored regardless of whether the
-    # actual value write succeeds.
-    #
     try {
         $keyWrite = $baseKey.OpenSubKey($subKeyPath, $true)
 
@@ -271,14 +274,16 @@ function Set-RegistryDwordSafe {
     }
     finally {
         # ---------------------------------------------------------
-        # 7. Restore the complete original security descriptor.
+        # 7. Restore the COMPLETE original security descriptor.
         # ---------------------------------------------------------
         #
-        # Explicitly request a writable handle and both rights
-        # needed to restore ownership and permissions.
+        # WRITE_OWNER is essential here. TakeOwnership only grants
+        # the ability to take ownership; it is not the same as
+        # explicitly requesting WRITE_OWNER access.
         #
         $restoreRights =
             [System.Security.AccessControl.RegistryRights]::TakeOwnership -bor
+            [System.Security.AccessControl.RegistryRights]::WriteOwner -bor
             [System.Security.AccessControl.RegistryRights]::ChangePermissions
 
         $keyRestore = $baseKey.OpenSubKey(
@@ -296,6 +301,35 @@ function Set-RegistryDwordSafe {
         finally {
             $keyRestore.Close()
         }
+
+        # ---------------------------------------------------------
+        # 8. Verify that the original OWNER was actually restored.
+        # ---------------------------------------------------------
+        $keyVerify = $baseKey.OpenSubKey(
+            $subKeyPath,
+            [Microsoft.Win32.RegistryKeyPermissionCheck]::ReadSubTree,
+            [System.Security.AccessControl.RegistryRights]::ReadPermissions)
+
+        if ($null -eq $keyVerify) {
+            throw "CRITICAL: Could not reopen registry key to verify its restored owner: $KeyPath"
+        }
+
+        try {
+            $verifyAcl = $keyVerify.GetAccessControl()
+            $restoredOwner = $verifyAcl.GetOwner(
+                [System.Security.Principal.NTAccount]).Value
+        }
+        finally {
+            $keyVerify.Close()
+        }
+
+        Write-Host "Restored owner: $restoredOwner"
+
+        if ($restoredOwner -cne $origOwner) {
+            throw "CRITICAL: Registry key owner was NOT restored. Expected '$origOwner', but found '$restoredOwner'."
+        }
+
+        Write-Host "Original registry owner successfully restored."
     }
 }
 
@@ -303,3 +337,5 @@ Set-RegistryDwordSafe `
     'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing' `
     'EnableLog' `
     0
+
+Write-Host "Registry modification completed successfully."
