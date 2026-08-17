@@ -173,17 +173,17 @@ func SaveSnapshot(path string, snapshot Snapshot) error {
 }
 
 func atomicWrite(path string, data []byte) error {
-	abs, err := filepath.Abs(path)
-	if err != nil {
-		return fmt.Errorf("resolve output path: %w", err)
+	abs, err1 := filepath.Abs(path)
+	if err1 != nil {
+		return fmt.Errorf("resolve output path: %w", err1)
 	}
 	dir := filepath.Dir(abs)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return fmt.Errorf("create output directory: %w", err)
+	if err2 := os.MkdirAll(dir, 0o755); err2 != nil {
+		return fmt.Errorf("create output directory: %w", err2)
 	}
-	f, err := os.CreateTemp(dir, ".win-svc-diff-*.tmp")
-	if err != nil {
-		return fmt.Errorf("create temporary snapshot: %w", err)
+	f, err3 := os.CreateTemp(dir, ".win-svc-diff-*.tmp")
+	if err3 != nil {
+		return fmt.Errorf("create temporary snapshot: %w", err3)
 	}
 	tmp := f.Name()
 	keep := false

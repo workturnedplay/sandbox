@@ -17,6 +17,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -180,7 +181,7 @@ func (a *app) saveLive(ui *wtw.UI) {
 	live := cloneLive(a.live)
 	a.mu.RUnlock()
 	if len(live) == 0 {
-		ui.ShowError("Save Current State", "No live service state is loaded yet.")
+		ui.ShowError("Save Current State", errors.New("No live service state is loaded yet."))
 		return
 	}
 	defaultName := fmt.Sprintf("Win11-Service-State-%s.json", time.Now().Format("20060102-150405"))
@@ -236,7 +237,7 @@ func (a *app) handleStartupChange(tab int, serviceName, target string, ui *wtw.U
 	live, ok := a.live[serviceName]
 	a.mu.RUnlock()
 	if !ok {
-		ui.ShowError("Startup Type Change", fmt.Sprintf("Service %q is no longer present in the live SCM snapshot.", serviceName))
+		ui.ShowError("Startup Type Change", errors.New(fmt.Sprintf("Service %q is no longer present in the live SCM snapshot.", serviceName)))
 		setBusyUI(ui, false)
 		return
 	}
@@ -248,7 +249,7 @@ func (a *app) handleStartupChange(tab int, serviceName, target string, ui *wtw.U
 		_ = ui.Post(func() {
 			setBusyUI(ui, false)
 			if err != nil {
-				ui.ShowError("Startup Type Change Failed", fmt.Sprintf("%s: %v", serviceName, err))
+				ui.ShowError("Startup Type Change Failed", errors.New(fmt.Sprintf("%s: %v", serviceName, err)))
 			}
 			if refreshErr != nil {
 				ui.ShowError("Post-change Refresh Failed", refreshErr)
@@ -274,12 +275,12 @@ func (a *app) handleStartupChange(tab int, serviceName, target string, ui *wtw.U
 
 func (a *app) applySelected(ui *wtw.UI) {
 	if !a.snapshotLoaded {
-		ui.ShowError("Apply File State", "Load a target snapshot before applying file state.")
+		ui.ShowError("Apply File State", errors.New("Load a target snapshot before applying file state."))
 		return
 	}
 	keys := ui.CheckedKeys(0)
 	if len(keys) == 0 {
-		ui.ShowError("Apply File State", "No services are selected in Tab 1 (Mismatched).")
+		ui.ShowError("Apply File State", errors.New("No services are selected in Tab 1 (Mismatched)."))
 		return
 	}
 	a.mu.RLock()
@@ -289,7 +290,7 @@ func (a *app) applySelected(ui *wtw.UI) {
 	diff := wtw.DiffSnapshots(snapshot, live)
 	entries := entriesByName(diff.Mismatched, keys)
 	if len(entries) == 0 {
-		ui.ShowError("Apply File State", "The selected services are no longer mismatched; refresh and try again.")
+		ui.ShowError("Apply File State", errors.New("The selected services are no longer mismatched; refresh and try again."))
 		return
 	}
 	setBusyUI(ui, true)
@@ -317,12 +318,12 @@ func (a *app) applySelected(ui *wtw.UI) {
 
 func (a *app) appendSelected(ui *wtw.UI) {
 	if !a.snapshotLoaded {
-		ui.ShowError("Append Live Only", "Load a target snapshot before appending Live Only services.")
+		ui.ShowError("Append Live Only", errors.New("Load a target snapshot before appending Live Only services."))
 		return
 	}
 	keys := ui.CheckedKeys(1)
 	if len(keys) == 0 {
-		ui.ShowError("Append Live Only", "No services are selected in Tab 2 (Live Only).")
+		ui.ShowError("Append Live Only", errors.New("No services are selected in Tab 2 (Live Only)."))
 		return
 	}
 	a.mu.RLock()
@@ -336,7 +337,7 @@ func (a *app) appendSelected(ui *wtw.UI) {
 		selectedNames = append(selectedNames, e.Name)
 	}
 	if len(selectedNames) == 0 {
-		ui.ShowError("Append Live Only", "The selected services are no longer Live Only; refresh and try again.")
+		ui.ShowError("Append Live Only", errors.New("The selected services are no longer Live Only; refresh and try again."))
 		return
 	}
 	base := filepath.Base(a.snapshotPath)

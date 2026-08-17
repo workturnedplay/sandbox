@@ -48,7 +48,7 @@ echo Building
 
 rem go build !BUILD_WITH_RACE_DETECTOR! !MOD_FLAG! -ldflags="-H=windowsgui" .
 rem go build !BUILD_WITH_RACE_DETECTOR! !MOD_FLAG! -ldflags="-H=windowsgui -X 'main.Version=!VERSION_TAG!'" .\cmd\winsvcdiff
-go build !BUILD_WITH_RACE_DETECTOR! !MOD_FLAG! -ldflags="-X 'main.Version=!VERSION_TAG!'" .\cmd\winsvcdiff
+go build !BUILD_WITH_RACE_DETECTOR! !MOD_FLAG! -ldflags="-H=windowsgui -X 'main.Version=!VERSION_TAG!'" .
 if errorlevel 1 goto :fail
 
 ::When you build with: -ldflags "-H=windowsgui"

@@ -1,1 +1,6 @@
 made by GPT-5.6 Luna Think in 1 prompt from spec.md but I said don't make many files, attached 2 wincoe files including main_api.go but i must've instructed it wrong as it ignored them.
+
+compiles after 2 more prompts and some manual fixes.
+
+the GUI seems good, it crashes on save tho.
+

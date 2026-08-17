@@ -392,13 +392,13 @@ func queryServiceConfig(scm windows.Handle, serviceName string) (ServiceConfig, 
 		if err == nil {
 			q := (*windows.QUERY_SERVICE_CONFIG)(unsafe.Pointer(&buf[0]))
 			display := windows.UTF16PtrToString(q.DisplayName)
-			delayed, err := queryDelayedStart(svc)
-			if err != nil {
-				return ServiceConfig{}, fmt.Errorf("QueryServiceConfig2 delayed-start: %w", err)
+			delayed, err2 := queryDelayedStart(svc)
+			if err2 != nil {
+				return ServiceConfig{}, fmt.Errorf("QueryServiceConfig2 delayed-start: %w", err2)
 			}
-			trigger, err := queryTriggerStart(svc)
-			if err != nil {
-				return ServiceConfig{}, fmt.Errorf("QueryServiceConfig2 trigger-info: %w", err)
+			trigger, err3 := queryTriggerStart(svc)
+			if err3 != nil {
+				return ServiceConfig{}, fmt.Errorf("QueryServiceConfig2 trigger-info: %w", err3)
 			}
 			return ServiceConfig{
 				DisplayName:  display,
@@ -546,7 +546,7 @@ func SetServiceStartup(instanceNames []string, baseName string, isPerUser bool, 
 	if err != nil {
 		return err
 	}
-	names := uniqueStrings(instanceNames)
+	names := appendUnique(nil, instanceNames...)
 	if isPerUser && baseName != "" {
 		names = appendUnique(names, baseName)
 	}
@@ -666,6 +666,7 @@ type UI struct {
 	comboTab     int
 	comboRow     int
 	shuttingDown bool
+	busy         bool
 	mu           sync.Mutex
 }
 
@@ -953,7 +954,7 @@ func (ui *UI) setupColumns(list windows.Handle) {
 	}
 	for i, h := range headers {
 		txt := windows.StringToUTF16Ptr(h.Name)
-		col := lvColumn{Mask: 0x0001 | 0x0002, Fmt: 0, CX: h.Width, Text: txt, SubItem: i}
+		col := lvColumn{Mask: 0x0001 | 0x0002, Fmt: 0, CX: h.Width, Text: txt, SubItem: int32(i)}
 		procSendMessageW.Call(uintptr(list), lvmInsertColumnW, uintptr(i), uintptr(unsafe.Pointer(&col)))
 	}
 }
@@ -1015,13 +1016,22 @@ func (ui *UI) handleCommand(wParam, lParam uintptr) uintptr {
 	return 0
 }
 
+func pointerFromUintptr(u uintptr, anchor *uintptr) unsafe.Pointer {
+	a := uintptr(unsafe.Pointer(anchor))
+	if u >= a {
+		return unsafe.Add(unsafe.Pointer(anchor), int(u-a))
+	}
+	return unsafe.Add(unsafe.Pointer(anchor), -int(a-u))
+}
+
 func (ui *UI) handleNotify(lParam uintptr) uintptr {
-	hdr := (*nmhdr)(unsafe.Pointer(lParam))
+	hdr := (*nmhdr)(pointerFromUintptr(lParam, &lParam))
 	if hdr == nil {
 		return 0
 	}
 	if hdr.HwndFrom == ui.tab && hdr.Code == tcnSelChange {
-		tab := int(procSendMessageW.Call(uintptr(ui.tab), tcmGetCurSel, 0, 0))
+		value, _, _ := procSendMessageW.Call(uintptr(ui.tab), tcmGetCurSel, 0, 0)
+		tab := int(int32(value))
 		ui.showTab(tab)
 		if ui.callbacks.OnTabChanged != nil {
 			ui.callbacks.OnTabChanged(tab, ui)
@@ -1032,7 +1042,7 @@ func (ui *UI) handleNotify(lParam uintptr) uintptr {
 		if hdr.HwndFrom != list || hdr.Code != nmDblClk {
 			continue
 		}
-		act := (*nmitemActivate)(unsafe.Pointer(lParam))
+		act := (*nmitemActivate)(pointerFromUintptr(lParam, &lParam))
 		if act.IItem < 0 || act.IItem >= int32(len(ui.rows[i])) {
 			return 0
 		}
@@ -1105,7 +1115,7 @@ func (ui *UI) setText(hwnd windows.Handle, text string) {
 }
 
 func (ui *UI) CurrentTab() int {
-	value := procSendMessageW.Call(uintptr(ui.tab), tcmGetCurSel, 0, 0)
+	value, _, _ := procSendMessageW.Call(uintptr(ui.tab), tcmGetCurSel, 0, 0)
 	return int(int32(value))
 }
 
@@ -1156,7 +1166,7 @@ func (ui *UI) SetRows(tab int, rows []UIRow) {
 		procSendMessageW.Call(uintptr(list), lvmInsertItemW, 0, uintptr(unsafe.Pointer(&item)))
 		for col := 1; col < len(values); col++ {
 			p := windows.StringToUTF16Ptr(values[col])
-			li := lvItem{Mask: lvifText, Item: int32(i), SubItem: col, Text: p, TextMax: int32(len(values[col]) + 1)}
+			li := lvItem{Mask: lvifText, Item: int32(i), SubItem: int32(col), Text: p, TextMax: int32(len(values[col]) + 1)}
 			procSendMessageW.Call(uintptr(list), lvmSetItemW, 0, uintptr(unsafe.Pointer(&li)))
 		}
 		if row.Checked && (tab == 0 || tab == 1) {
@@ -1173,7 +1183,7 @@ func (ui *UI) CheckedKeys(tab int) []string {
 	list := ui.lists[tab]
 	out := make([]string, 0)
 	for i, row := range ui.rows[tab] {
-		state := procSendMessageW.Call(uintptr(list), lvmGetItemState, uintptr(i), lvmItemStateChecked|lvmItemStateUnchecked)
+		state, _, _ := procSendMessageW.Call(uintptr(list), lvmGetItemState, uintptr(i), lvmItemStateChecked|lvmItemStateUnchecked)
 		if state&lvmItemStateChecked != 0 {
 			out = append(out, row.Key)
 		}
@@ -1237,7 +1247,7 @@ func (ui *UI) commitCombo() {
 	if ui.combo == 0 {
 		return
 	}
-	idx := procSendMessageW.Call(uintptr(ui.combo), cbGetCurSel, 0, 0)
+	idx, _, _ := procSendMessageW.Call(uintptr(ui.combo), cbGetCurSel, 0, 0)
 	choices := []string{"Automatic", "AutomaticDelayed", "Manual", "Disabled", "Boot", "System"}
 	if idx >= uintptr(len(choices)) {
 		ui.endCombo(false)
@@ -1368,8 +1378,8 @@ func (ui *UI) ShowAuditReport(results []RemediationResult) {
 		b.WriteString("  " + f + "\r\n")
 	}
 	text := windows.StringToUTF16Ptr(b.String())
-	cap := windows.StringToUTF16Ptr("Service State Audit")
-	procMessageBoxW.Call(uintptr(ui.hwnd), uintptr(unsafe.Pointer(text)), uintptr(unsafe.Pointer(cap)), 0x00000040)
+	cap2 := windows.StringToUTF16Ptr("Service State Audit")
+	procMessageBoxW.Call(uintptr(ui.hwnd), uintptr(unsafe.Pointer(text)), uintptr(unsafe.Pointer(cap2)), 0x00000040)
 }
 
 func (ui *UI) Close() {
