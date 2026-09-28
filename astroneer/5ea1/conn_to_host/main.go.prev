@@ -1,0 +1,177 @@
+/*
+### How to use it for real testing:
+
+1. **dnsbollocks setup:** Point `5ea1.playfabapi.com` to `127.4.5.19`.
+2. **Run the program:** `go run main.go`
+3. **Execution path:**
+* The program listens on `127.4.5.19:4431`.
+* It calls `net.DialContext("tcp", "5ea1.playfabapi.com:4431")`.
+* The OS queries `dnsbollocks` $\rightarrow$ gets `127.4.5.19`.
+* The TCP socket creation is intercepted by **Portmaster's kernel driver/service**.
+* If Portmaster's rule engine (patched or unpatched) permits `5ea1.playfabapi.com`, the connection hits `127.4.5.19:4431` and prints **`✅ CONNECTION SUCCESSFUL`**.
+* If Portmaster blocks it (e.g. falling through to `- *` due to the un-normalized string bug), `net.Dial` fails immediately or times out and prints **`❌ CONNECTION FAILED / BLOCKED BY PORTMASTER`**.
+
+*/
+package main
+
+import (
+	"context"
+	"fmt"
+	"io"
+	"net"
+	"os"
+	"os/signal"
+	"strings"
+	"sync"
+	"syscall"
+	"time"
+)
+
+const (
+	listenIP   = "127.4.5.19"
+	listenPort = "4431"
+	targetHost = "5ea1.playfabapi.test"
+	dialAddr   = targetHost + ":" + listenPort
+	bindAddr   = listenIP + ":" + listenPort
+)
+
+func main() {
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+
+	var wg sync.WaitGroup
+	serverReady := make(chan struct{})
+
+	// Step 1: Start local TCP listener on 127.4.5.19:4431
+	wg.Add(1)
+	go startListener(ctx, &wg, serverReady)
+
+	select {
+	case <-serverReady:
+	case <-time.After(2 * time.Second):
+		fmt.Fprintf(os.Stderr, "FATAL: Failed to bind mock server to %s\n", bindAddr)
+		os.Exit(1)
+	}
+
+  // Brief pause to allow Portmaster daemon to index the listening socket PID
+	time.Sleep(1000 * time.Millisecond)
+  
+	fmt.Println("=============================================================")
+	fmt.Printf(" Listener Active : %s\n", bindAddr)
+	fmt.Printf(" Target Endpoint : %s\n", dialAddr)
+	fmt.Println("=============================================================")
+	fmt.Println("Attempting OS DNS resolution and real TCP connection through Portmaster...")
+
+	// Step 2: Attempt real OS network dial to 5ea1.playfabapi.com:4431
+	dialer := net.Dialer{
+		Timeout: 3 * time.Second,
+        Resolver: &net.Resolver{
+        PreferGo: true,
+        Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+          d := net.Dialer{Timeout: 1 * time.Second}
+          // Queries Portmaster directly, bypassing Windows dnscache RAM
+          return d.DialContext(ctx, "udp4", "127.0.0.1:53")
+        },
+      },
+	}
+
+	start := time.Now()
+	conn, err := dialer.DialContext(ctx, "tcp4", dialAddr)
+	elapsed := time.Since(start)
+
+	if err != nil {
+		fmt.Printf("\n❌ CONNECTION FAILED / BLOCKED BY PORTMASTER (%v)\n", elapsed.Round(time.Millisecond))
+		fmt.Printf("   Error Detail: %v\n", err)
+		fmt.Println("   Status      : Rule engine denied the packet or DNS resolution failed.")
+	} else {
+		defer conn.Close()
+		fmt.Printf("\n✅ CONNECTION SUCCESSFUL (%v)\n", elapsed.Round(time.Millisecond))
+		fmt.Printf("   Connected To: %s (Resolved via OS/dnsbollocks)\n", conn.RemoteAddr().String())
+
+		// Send handshake payload
+		_ = conn.SetDeadline(time.Now().Add(2 * time.Second))
+		payload := fmt.Sprintf("PING %s HTTP/1.1\r\n\r\n", targetHost)
+		if _, err := conn.Write([]byte(payload)); err != nil {
+			fmt.Printf("   Write Error : %v\n", err)
+		} else {
+			buf := make([]byte, 256)
+			n, err := conn.Read(buf)
+			if err != nil && err != io.EOF {
+				fmt.Printf("   Read Error  : %v\n", err)
+			} else {
+				fmt.Printf("   Server Reply: %q\n", strings.TrimSpace(string(buf[:n])))
+			}
+		}
+	}
+
+	cancel()
+	wg.Wait()
+  
+  // Essential buffer delay: gives Portmaster WFP driver time to process socket
+	// cleanup and avoid racing with process termination on rapid re-runs.
+  // else it will deny all subsequent (other than first run of this program) connections because pid is seen as -2
+	fmt.Println("\nCleaning up and syncing Portmaster state...")
+	time.Sleep(1 * time.Second)
+}
+
+func startListener(ctx context.Context, wg *sync.WaitGroup, ready chan<- struct{}) {
+	defer wg.Done()
+
+	lc := net.ListenConfig{
+		Control: func(network, address string, c syscall.RawConn) error {
+			var err error
+			c.Control(func(fd uintptr) {
+				// Force socket reuse on Windows/Unix
+				err = syscall.SetsockoptInt(syscall.Handle(fd), syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1)
+			})
+			return err
+		},
+	}
+
+	listener, err := lc.Listen(ctx, "tcp", bindAddr)
+	if err != nil {
+		fmt.Printf("[Server] Bind error: %v\n", err)
+		return
+	}
+	// Force immediate release of socket without lingering in TIME_WAIT
+	defer listener.Close()
+
+	close(ready)
+
+	// Close listener immediately when context cancels
+	go func() {
+		<-ctx.Done()
+		_ = listener.Close()
+	}()
+
+	for {
+		conn, err := listener.Accept()
+		if err != nil {
+			return
+		}
+		// Close client connection cleanly with zero linger time
+		go handleConnection(conn)
+	}
+}
+
+func handleConnection(conn net.Conn) {
+	if tcpConn, ok := conn.(*net.TCPConn); ok {
+		_ = tcpConn.SetLinger(0) // Forces RST on close, skipping OS TIME_WAIT
+	}
+	defer conn.Close()
+
+	_ = conn.SetReadDeadline(time.Now().Add(1 * time.Second))
+	buf := make([]byte, 512)
+	n, _ := conn.Read(buf)
+
+	resp := fmt.Sprintf("PONG [Echo Host header: %s]", extractHost(string(buf[:n])))
+	_, _ = conn.Write([]byte(resp))
+}
+
+func extractHost(req string) string {
+	lines := strings.Split(req, "\r\n")
+	if len(lines) > 0 {
+		return lines[0]
+	}
+	return "UNKNOWN"
+}

@@ -1,0 +1,117 @@
+diff --git a/service/profile/endpoints/endpoint-domain.go b/service/profile/endpoints/endpoint-domain.go
+index cdb6f248..d16144bb 100644
+--- a/service/profile/endpoints/endpoint-domain.go
++++ b/service/profile/endpoints/endpoint-domain.go
+@@ -36,6 +36,16 @@ type EndpointDomain struct {
+ }
+ 
+ func (ep *EndpointDomain) check(entity *intel.Entity, domain string) (EPResult, Reason) {
++	if domain == "" {
++		return NoMatch, nil
++	}
++
++	// Normalize incoming domain string to lowercase with a trailing dot.
++	domain = strings.ToLower(domain)
++	if !strings.HasSuffix(domain, ".") {
++		domain += "."
++	}
++
+ 	result, reason := ep.match(ep, entity, ep.OriginalValue, "domain matches")
+ 
+ 	switch ep.MatchType {
+@@ -44,10 +54,7 @@ func (ep *EndpointDomain) check(entity *intel.Entity, domain string) (EPResult,
+ 			return result, reason
+ 		}
+ 	case domainMatchTypeZone:
+-		if domain == ep.Domain {
+-			return result, reason
+-		}
+-		if strings.HasSuffix(domain, ep.DomainZone) {
++		if domain == ep.Domain || strings.HasSuffix(domain, ep.DomainZone) {
+ 			return result, reason
+ 		}
+ 	case domainMatchTypeSuffix:
+@@ -68,20 +75,17 @@ func (ep *EndpointDomain) check(entity *intel.Entity, domain string) (EPResult,
+ 
+ // Matches checks whether the given entity matches this endpoint definition.
+ func (ep *EndpointDomain) Matches(ctx context.Context, entity *intel.Entity) (EPResult, Reason) {
+-	domain, ok := entity.GetDomain(ctx, true /* mayUseReverseDomain */)
+-	if !ok {
+-		return NoMatch, nil
+-	}
+-
+-	result, reason := ep.check(entity, domain)
+-	if result != NoMatch {
+-		return result, reason
++	if domain, ok := entity.GetDomain(ctx, true /* mayUseReverseDomain */); ok {
++		result, reason := ep.check(entity, domain)
++		if result != NoMatch {
++			return result, reason
++		}
+ 	}
+ 
+ 	if entity.CNAMECheckEnabled() {
+ 		for _, cname := range entity.CNAME {
+-			result, reason = ep.check(entity, cname)
+-			if result == Denied {
++			result, reason := ep.check(entity, cname)
++			if result != NoMatch {
+ 				return result, reason
+ 			}
+ 		}
+@@ -167,4 +171,4 @@ func parseTypeDomain(fields []string) (Endpoint, error) {
+ 	}
+ 
+ 	return ep.parsePPP(ep, fields)
+-}
++}
+\ No newline at end of file
+diff --git a/service/profile/endpoints/endpoints_test.go b/service/profile/endpoints/endpoints_test.go
+index e33822f0..c3e6fc10 100644
+--- a/service/profile/endpoints/endpoints_test.go
++++ b/service/profile/endpoints/endpoints_test.go
+@@ -539,3 +539,44 @@ func getLineNumberOfCaller(levels int) int {
+ 	_, _, line, _ := runtime.Caller(levels + 1) //nolint:dogsled
+ 	return line
+ }
++
++// go test -v -run TestEndpointMatchingDomainNormalization ./service/profile/endpoints
++func TestEndpointMatchingDomainNormalization(t *testing.T) {
++	t.Parallel()
++
++	ep, err := parseEndpoint("+ 5ea1.playfabapi.com")
++	assert.NoError(t, err)
++
++	// Uppercase input without trailing dot
++	entity := (&intel.Entity{
++		Domain: "5EA1.PLAYFABAPI.COM",
++	}).Init(0)
++	testEndpointMatch(t, ep, entity, Permitted)
++
++	// Uppercase input with trailing dot
++	entity2 := (&intel.Entity{
++		Domain: "5EA1.PLAYFABAPI.COM.",
++	}).Init(0)
++	testEndpointMatch(t, ep, entity2, Permitted)
++
++	// Test lowercase input without trailing dot
++	entityFQDN := (&intel.Entity{
++		Domain: "5ea1.playfabapi.com",
++	}).Init(0)
++	testEndpointMatch(t, ep, entityFQDN, Permitted)
++
++	// Test lowercase input with trailing dot
++	entityFQDN2 := (&intel.Entity{
++		Domain: "5ea1.playfabapi.com.",
++	}).Init(0)
++	testEndpointMatch(t, ep, entityFQDN2, Permitted)
++
++	// CNAME match producing Permitted decision
++	entityCNAME := (&intel.Entity{
++		Domain: "some-other-domain.com.",
++		CNAME:  []string{"5ea1.playfabapi.com."},
++	}).Init(0)
++	entityCNAME.EnableCNAMECheck(context.Background(), true)
++
++	testEndpointMatch(t, ep, entityCNAME, Permitted)
++}
