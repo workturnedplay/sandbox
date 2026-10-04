@@ -76,7 +76,8 @@ func main() {
 			bodyStr,
 		)
 
-		w.WriteHeader(http.StatusOK)
+		// Steam NCSI expects 204 No Content for /204 probes; Go automatically drops the body
+		w.WriteHeader(http.StatusNoContent)
 	})
 
 	srv := &http.Server{
