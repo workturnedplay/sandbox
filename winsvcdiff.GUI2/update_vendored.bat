@@ -2,10 +2,22 @@
 rem 1. Prevent the current working directory from taking precedence over PATH, doesn't work with eg. "start go.exe"
 set "NoDefaultCurrentDirectoryInExePath=1"
 
-cd /d "%~dp0" 2>nul || rem Stay in current directory if already correct
-
+::if running as admin must get back to current dir:
+:: 1. Change directory and store path BEFORE enabling delayed expansion.
+::    While delayed expansion is disabled, '!' is treated as a literal character.
+setlocal disabledelayedexpansion
+:: ^ needed if called by a 'call me.bat' command where it's already enabled in parent!
+cd /d "%~dp0"
+set "SCRIPT_DIR=%~dp0"
 set "bang=^!"
+:: 2. Enable delayed expansion for script logic
 setlocal enabledelayedexpansion
+
+:: 3. Test: Use !SCRIPT_DIR! (safe), do NOT use %SCRIPT_DIR% or %~dp0 (unsafe)
+rem echo Current DIR: "!SCRIPT_DIR!"
+
+rem set "bang=^!"  XXX: this is done above before delayed expansion!!
+rem setlocal enabledelayedexpansion XXX: already done!
 rem  Yes. Since you have setlocal enabledelayedexpansion at the top, using !VAR! is the "gold standard" for making your script refactor-proof.
 rem In Batch, %VAR% is expanded when a command (or a block of commands inside parentheses) is read, while !VAR! is expanded when the command is executed.
 
@@ -107,8 +119,8 @@ if "!COMPARE_RESULT!"=="0" (
     rem Check if Project > Installed (The "Future Version" problem)
     powershell -NoProfile -command "if ([version]'!PROJECT_VER!' -gt [version]'!INSTALLED_VER!') { exit 0 } else { exit 1 }" >nul 2>&1
     if !errorlevel! equ 0 (
-        echo [!] WARNING: go.mod wants !PROJECT_VER!, but you only have !INSTALLED_VER!.
-        echo [!] Go will attempt to download the toolchain now...
+        echo [^^!] WARNING: go.mod wants !PROJECT_VER!, but you only have !INSTALLED_VER!.
+        echo [^^!] Go will attempt to download the toolchain now...
         go version
         if !errorlevel! neq 0 (set "stage=Go version self-updating from the internet" & goto :failed)
     ) else (
@@ -126,7 +138,7 @@ if "!HAS_WORKSPACE!"=="1" (
       for /f "tokens=2" %%v in ('findstr /b "go " "!WS_PATH!"') do set "WORK_VER=%%v"
 
       if "!WORK_VER!"=="" (
-          echo [!] WARNING: go.work found but no 'go' version line detected. Skipping.
+          echo [^^!] WARNING: go.work found but no 'go' version line detected. Skipping.
       ) else (
           rem Validate the version string found in go.work
           set "CHECK_TARGET=!WORK_VER!"
@@ -182,12 +194,14 @@ pause
 exit /b 0
 
 :failed
+set "failcode=!errorlevel!"
+if "!failcode!"=="0" set "failcode=1"
 echo.
 echo ########################################
-echo ERROR: !stage! failed with exit code !errorlevel!.
+echo ERROR: !stage! failed with exit code !failcode!.
 echo ########################################
 pause
-exit /b !errorlevel!
+exit /b !failcode!
 
 
 rem shouldn't be reached:
